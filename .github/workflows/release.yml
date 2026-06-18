@@ -48,13 +48,17 @@ jobs:
         run: |
           BINARY_NAME="claude-code-proxy-${{ matrix.suffix }}"
           go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "${BINARY_NAME}" ./cmd/server
+          # Bundle the config template alongside the binary so users have a ready-to-edit example.
+          cp config.example.yaml "${BINARY_NAME}.config.example.yaml"
           echo "BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}
-          path: ${{ env.BINARY_NAME }}
+          path: |
+            ${{ env.BINARY_NAME }}
+            ${{ env.BINARY_NAME }}.config.example.yaml
 
   release:
     name: Create Release
@@ -79,6 +83,8 @@ jobs:
           body: |
             ## 📦 Binaries
 
+            Each archive also includes `*.config.example.yaml` — a ready-to-edit config template.
+
             | Platform | Architecture | Download |
             |----------|-------------|----------|
             | Linux | x86_64 | `claude-code-proxy-linux-amd64` |
@@ -86,6 +92,12 @@ jobs:
             | macOS | Intel | `claude-code-proxy-darwin-amd64` |
             | macOS | Apple Silicon | `claude-code-proxy-darwin-arm64` |
             | Windows | x86_64 | `claude-code-proxy-windows-amd64.exe` |
+
+            ## ⚠️ Breaking change in this release
+
+            Configuration has moved from **environment variables** to a single **`config.yaml`** file.
+            `OPENAI_API_KEY`, `BIG_MODEL`, etc. are no longer read from the environment.
+            See the migration step below.
 
             ## 🚀 Quick Start
 
@@ -96,9 +108,13 @@ jobs:
             chmod +x claude-code-proxy-*
             ```
 
-            **3. Set your OpenAI API key:**
+            **3. Create a config file** from the bundled template:
             ```bash
-            export OPENAI_API_KEY="sk-..."
+            cp claude-code-proxy-*.config.example.yaml config.yaml
+            ```
+            Edit `config.yaml` and set at minimum:
+            ```yaml
+            openai_api_key: sk-...
             ```
 
             **4. Run the proxy:**
@@ -111,24 +127,15 @@ jobs:
 
             ## ⚙️ Configuration
 
-            All configuration is done via environment variables:
+            The proxy searches for `config.yaml` in this order:
+            1. Path given to `--config`
+            2. `./config.yaml`
+            3. `~/.claude-code-proxy/config.yaml`
+            4. `/etc/claude-code-proxy/config.yaml`
 
-            | Variable | Required | Default | Description |
-            |----------|----------|---------|-------------|
-            | `OPENAI_API_KEY` | ✅ Yes | — | Your OpenAI API key |
-            | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | OpenAI-compatible API endpoint |
-            | `ANTHROPIC_API_KEY` | No | — | Client API key for request validation |
-            | `BIG_MODEL` | No | `gpt-4o` | Model for complex requests |
-            | `MIDDLE_MODEL` | No | _(same as BIG_MODEL)_ | Model for medium requests |
-            | `SMALL_MODEL` | No | `gpt-4o-mini` | Model for simple requests |
-            | `HOST` | No | `0.0.0.0` | Bind address |
-            | `PORT` | No | `8082` | Server port |
-            | `LOG_LEVEL` | No | `INFO` | Log level |
-            | `REQUEST_TIMEOUT` | No | `90` | Request timeout in seconds |
-            | `MAX_RETRIES` | No | `2` | Max retry attempts |
-
-            Per-model API keys and base URLs are also supported:
-            `BIG_MODEL_API_KEY`, `BIG_MODEL_BASE_URL`, `MIDDLE_MODEL_API_KEY`, `MIDDLE_MODEL_BASE_URL`, `SMALL_MODEL_API_KEY`, `SMALL_MODEL_BASE_URL`.
+            See `config.example.yaml` (bundled with the binary, also in the repo) for the full
+            annotated schema: secrets, upstream URL, server, token limits, connection settings,
+            three-tier model routing, and custom upstream headers.
 
             ## 🔗 Point Claude Code at the Proxy
 
@@ -139,8 +146,11 @@ jobs:
 
             ## 🐳 Docker
 
+            Mount your `config.yaml` at the default discovery path:
             ```bash
-            docker run -p 8082:8082 -e OPENAI_API_KEY="sk-..." ghcr.io/misternay/claude-desktop-proxy-golang:${{ github.ref_name }}
+            docker run -p 8082:8082 \
+              -v ./config.yaml:/etc/claude-code-proxy/config.yaml:ro \
+              ghcr.io/misternay/claude-desktop-proxy-golang:${{ github.ref_name }}
             ```
 
             ---

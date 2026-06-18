@@ -2,13 +2,13 @@
 
 > This project is a rewrite of [9homme/claude-code-proxy](https://github.com/9homme/claude-code-proxy) for personal use only, not for commercial use.
 
-A high-performance proxy server that accepts **Claude API** format requests and forwards them to **OpenAI-compatible** API providers. Written in Go with **zero external dependencies** — only the standard library.
+A high-performance proxy server that accepts **Claude API** format requests and forwards them to **OpenAI-compatible** API providers. Written in Go with a minimal dependency footprint (stdlib + `yaml.v3` for config).
 
 ## Why Go?
 
 - **8.9 MB** static binary — no Python runtime needed
 - **~2,500 lines** of clean, idiomatic Go
-- **Zero dependencies** — builds with just `go build`
+- **Minimal dependencies** — builds with just `go build`
 - **Fast startup** — ready in milliseconds
 - **Single binary deployment** — easy to distribute
 
@@ -22,7 +22,7 @@ A high-performance proxy server that accepts **Claude API** format requests and 
 - Per-model API keys and base URLs
 - Optional client API key validation
 - Azure OpenAI support
-- Custom headers via env vars
+- Custom upstream headers via `config.yaml`
 - Auto-cancellation on client disconnect
 
 ---
@@ -35,8 +35,10 @@ A high-performance proxy server that accepts **Claude API** format requests and 
 # Clone the project
 cd claude-code-proxy-go
 
-# Set your OpenAI API key
-export OPENAI_API_KEY=sk-your-key-here
+# Create your config file from the template
+cp config.example.yaml config.yaml
+# Edit config.yaml and set openai_api_key
+$EDITOR config.yaml
 
 # Build the binary
 go build -o claude-code-proxy ./cmd/server
@@ -50,7 +52,7 @@ The server starts on `http://0.0.0.0:8082`.
 ### Option 2: Run directly (no build step)
 
 ```bash
-export OPENAI_API_KEY=sk-your-key-here
+cp config.example.yaml config.yaml   # then edit and set openai_api_key
 go run ./cmd/server
 ```
 
@@ -60,11 +62,11 @@ go run ./cmd/server
 # Build the image
 docker build -t claude-code-proxy .
 
-# Run with your API key
+# Run, mounting your config at the default discovery path
 docker run -d \
   --name claude-proxy \
   -p 8082:8082 \
-  -e OPENAI_API_KEY=sk-your-key-here \
+  -v ./config.yaml:/etc/claude-code-proxy/config.yaml:ro \
   claude-code-proxy
 ```
 
@@ -118,69 +120,96 @@ ANTHROPIC_BASE_URL=http://localhost:8082 claude
 
 ## Configuration
 
-All settings are via environment variables. See `.env.example` for the full list.
+All settings live in a single `config.yaml`. The proxy searches, in order:
 
-### Using a .env file
+1. Path given to `--config <path>` (e.g. `./claude-code-proxy --config /opt/prod/config.yaml`)
+2. `./config.yaml`
+3. `~/.claude-code-proxy/config.yaml`
+4. `/etc/claude-code-proxy/config.yaml` (Docker: mount here)
 
-The app reads from environment variables at startup — it does not auto-load `.env` files. To use one:
+First match wins. If none is found, the proxy exits with an error listing the searched paths. See [`config.example.yaml`](./config.example.yaml) for the full annotated schema.
 
-```bash
-# Copy the example
-cp .env.example .env
+> Numeric values use explicit-zero semantics: setting `port: 0` (or `max_retries: 0`, etc.) is honored as the literal zero, not replaced by the default. Omit the key entirely to get the default.
 
-# Edit with your values
-nano .env   # or vim, code, etc.
+### Minimal config
 
-# Source it before running (set -a auto-exports all variables)
-set -a && source .env && set +a
-
-# Now run the server
-./claude-code-proxy
+```yaml
+openai_api_key: sk-your-key-here
 ```
 
 ### Required
 
-| Variable | Description |
+| Key | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | Your OpenAI (or compatible) API key |
+| `openai_api_key` | Your OpenAI (or compatible) API key |
+
+### Security
+
+| Key | Default | Description |
+|----------|---------|-------------|
+| `anthropic_api_key` | _(empty)_ | If set, clients must send this key to access the proxy. If empty, the proxy is open access. |
+
+### Upstream
+
+| Key | Default | Description |
+|----------|---------|-------------|
+| `openai_base_url` | `https://api.openai.com/v1` | OpenAI-compatible API endpoint |
+| `azure_api_version` | _(empty)_ | Azure OpenAI deployment API version (leave empty for non-Azure) |
 
 ### Server
 
-| Variable | Default | Description |
+| Key | Default | Description |
 |----------|---------|-------------|
-| `HOST` | `0.0.0.0` | Listen address |
-| `PORT` | `8082` | Listen port |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `REQUEST_TIMEOUT` | `90` | Upstream timeout in seconds |
+| `host` | `0.0.0.0` | Listen address |
+| `port` | `8082` | Listen port |
+| `log_level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `request_timeout` | `90` | Upstream timeout in seconds |
+| `max_retries` | `2` | Max retry attempts |
 
-### Model Mapping
+### Token limits
 
-| Variable | Default | Description |
+| Key | Default | Description |
 |----------|---------|-------------|
-| `BIG_MODEL` | `gpt-4o` | Used for Claude opus requests |
-| `MIDDLE_MODEL` | *(same as BIG_MODEL)* | Used for Claude sonnet requests |
-| `SMALL_MODEL` | `gpt-4o-mini` | Used for Claude haiku requests |
+| `max_tokens_limit` | `4096` | Upper clamp for requested `max_tokens` |
+| `min_tokens_limit` | `100` | Lower clamp for requested `max_tokens` |
+| `max_tokens` | _(= max_tokens_limit)_ | Override the upper clamp |
+| `min_tokens` | _(= min_tokens_limit)_ | Override the lower clamp |
 
-### Per-Model Keys
+### Model mapping
 
-Route different model tiers to different providers:
-
-```bash
-# Route opus to one provider, haiku to another
-BIG_MODEL=gpt-4o
-BIG_MODEL_API_KEY=sk-provider1-key
-BIG_MODEL_BASE_URL=https://api.provider1.com/v1
-
-SMALL_MODEL=gpt-4o-mini
-SMALL_MODEL_API_KEY=sk-provider2-key
-SMALL_MODEL_BASE_URL=https://api.provider2.com/v1
+```yaml
+models:
+  big:
+    name: gpt-4o          # used for Claude opus requests
+  middle:
+    name: gpt-4o          # leave empty to inherit big.name; used for sonnet
+  small:
+    name: gpt-4o-mini     # used for haiku
 ```
 
-### Custom Headers
+### Per-model keys & base URLs
 
-```bash
-CUSTOM_HEADER_X_MY_HEADER=value
-CUSTOM_HEADER_X_ANOTHER=another-value
+Route different model tiers to different providers. Empty `api_key` and `base_url`
+fall back to the top-level `openai_api_key` / `openai_base_url`:
+
+```yaml
+models:
+  big:
+    name: gpt-4o
+    api_key: sk-provider1-key
+    base_url: https://api.provider1.com/v1
+  small:
+    name: gpt-4o-mini
+    api_key: sk-provider2-key
+    base_url: https://api.provider2.com/v1
+```
+
+### Custom headers
+
+```yaml
+custom_headers:
+  X-My-Header: value
+  X-Another: another-value
 ```
 
 These are forwarded to the upstream API on every request.
@@ -198,7 +227,7 @@ These are forwarded to the upstream API on every request.
 | `GET` | `/test-connection` | No | Test upstream API connectivity |
 | `GET` | `/` | No | Root info and config summary |
 
-Auth is required only when `ANTHROPIC_API_KEY` is set.
+Auth is required only when `anthropic_api_key` is set in `config.yaml`; otherwise the proxy is open access. Authenticated endpoints also pass through a per-IP rate limiter (100 requests/minute).
 
 ---
 
@@ -207,13 +236,15 @@ Auth is required only when `ANTHROPIC_API_KEY` is set.
 ```
 claude-code-proxy-go/
 ├── cmd/server/
-│   └── main.go              # Entry point, routing, CORS
+│   └── main.go              # Entry point, routing, CORS, --help/--config flags
 ├── internal/
 │   ├── config/
-│   │   └── config.go        # Env-based configuration
+│   │   ├── config.go        # YAML config loading + fallback defaults
+│   │   └── config_test.go
 │   ├── handler/
 │   │   ├── handler.go       # HTTP endpoint handlers
-│   │   └── middleware.go     # API key validation
+│   │   ├── middleware.go     # API key validation
+│   │   └── ratelimit.go     # Per-IP rate limiter
 │   ├── model/
 │   │   ├── claude.go        # Claude API type definitions
 │   │   └── constants.go     # Shared string constants
@@ -225,9 +256,9 @@ claude-code-proxy-go/
 │   │   └── openai.go        # OpenAI HTTP client + cancellation
 │   └── modelmanager/
 │       └── modelmanager.go  # Model name mapping
+├── config.example.yaml      # Annotated config template
 ├── Dockerfile
-├── .env.example
-├── go.mod                   # Zero dependencies
+├── go.mod                   # stdlib + gopkg.in/yaml.v3
 └── README.md
 ```
 
@@ -235,15 +266,20 @@ claude-code-proxy-go/
 
 ## Testing
 
+Tests are hermetic — they self-seed a default `config.AppConfig` via `TestMain`, so no config file or environment variables are required.
+
 ```bash
 # Run all tests
-OPENAI_API_KEY=sk-test go test ./...
+go test ./...
 
 # With verbose output
-OPENAI_API_KEY=sk-test go test ./... -v
+go test ./... -v
+
+# With race detector
+go test -race ./...
 
 # Coverage
-OPENAI_API_KEY=sk-test go test -cover ./...
+go test -cover ./...
 ```
 
 ---

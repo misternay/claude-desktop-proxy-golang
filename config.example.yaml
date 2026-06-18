@@ -1,0 +1,62 @@
+# Claude-to-OpenAI API Proxy configuration
+#
+# Copy this file to one of the discovery paths and edit:
+#   ./config.yaml
+#   ~/.claude-code-proxy/config.yaml
+#   /etc/claude-code-proxy/config.yaml   (Docker: mount here)
+# Or pass --config <path> to the binary.
+#
+# Real keys live in this file — keep it out of git (config.yaml is gitignored).
+
+# ─── Secrets ────────────────────────────────────────────────────────────────
+# REQUIRED. Your OpenAI-compatible API key.
+openai_api_key: sk-your-key-here
+
+# OPTIONAL. If set, clients must send this key to access the proxy.
+# If empty, the proxy accepts any client (open access).
+anthropic_api_key: ""
+
+# ─── OpenAI-compatible upstream ─────────────────────────────────────────────
+# Base URL of the upstream chat-completions API.
+openai_base_url: https://api.openai.com/v1
+# Azure OpenAI deployment API version (leave empty for non-Azure).
+azure_api_version: ""
+
+# ─── Server ─────────────────────────────────────────────────────────────────
+host: 0.0.0.0
+port: 8082
+log_level: INFO
+
+# ─── Token limits ───────────────────────────────────────────────────────────
+max_tokens_limit: 4096
+min_tokens_limit: 100
+# Optional explicit overrides (default to the limits above).
+# max_tokens: 4096
+# min_tokens: 100
+
+# ─── Connection ─────────────────────────────────────────────────────────────
+request_timeout: 90   # seconds
+max_retries: 2
+
+# ─── Three-tier model routing ───────────────────────────────────────────────
+# Each tier may override name / api_key / base_url. Empty api_key and base_url
+# fall back to the top-level openai_api_key and openai_base_url.
+# Empty middle.name falls back to big.name.
+models:
+  big:
+    name: deepseek-v4-pro
+    # api_key: ""
+    # base_url: ""
+  middle:
+    name: qwen3.7-max
+    # api_key: ""
+    # base_url: ""
+  small:
+    name: glm5.1
+    # api_key: ""
+    # base_url: ""
+
+# ─── Custom upstream headers ────────────────────────────────────────────────
+# Sent on every request to the upstream API.
+# custom_headers:
+#   X-Custom-Header: value

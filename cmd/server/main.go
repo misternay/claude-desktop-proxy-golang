@@ -18,25 +18,34 @@ import (
 var version = "dev"
 
 func main() {
-	// Parse --help flag
-	if len(os.Args) > 1 && os.Args[1] == "--help" {
+	// Parse --help flag — short-circuit before loading config so help works
+	// even when no config file exists yet.
+	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help") {
 		fmt.Printf("Claude-to-OpenAI API Proxy %s\n", version)
 		fmt.Println()
 		fmt.Println("A proxy server that accepts Claude API requests and forwards them to OpenAI-compatible APIs.")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  claude-code-proxy [flags]")
+		fmt.Println("  claude-code-proxy [--config <path>]")
 		fmt.Println()
 		fmt.Println("Flags:")
-		fmt.Println("  --help    Show this help message")
+		fmt.Println("  --config <path>    Path to config.yaml (overrides default search)")
+		fmt.Println("  --help             Show this help message")
 		fmt.Println()
 		fmt.Println("Configuration:")
-		fmt.Println("  Set environment variables or source a .env file before running.")
-		fmt.Println("  See .env.example for all available options.")
+		fmt.Println("  Configuration is read from config.yaml. The proxy searches, in order:")
+		fmt.Println("    1. Path given to --config")
+		fmt.Println("    2. ./config.yaml")
+		fmt.Println("    3. ~/.claude-code-proxy/config.yaml")
+		fmt.Println("    4. /etc/claude-code-proxy/config.yaml")
+		fmt.Println("  See config.example.yaml for all available options.")
 		os.Exit(0)
 	}
 
-	// Configuration is auto-loaded via config.init()
+	// Load configuration from config.yaml (or --config path).
+	if err := config.Load(os.Args[1:]); err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
 	if err := config.AppConfig.Validate(); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}

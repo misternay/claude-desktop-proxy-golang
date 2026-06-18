@@ -2,12 +2,21 @@ package converter
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"claude-code-proxy-go/internal/config"
 	"claude-code-proxy-go/internal/model"
 	"claude-code-proxy-go/internal/modelmanager"
 )
+
+// TestMain seeds the package-global AppConfig with hardcoded defaults so the
+// converter tests stay hermetic — the config package no longer self-seeds
+// AppConfig in test builds (the previous init()/isTest() hack was removed).
+func TestMain(m *testing.M) {
+	config.AppConfig = config.Default()
+	os.Exit(m.Run())
+}
 
 func newTestModelManager() *modelmanager.ModelManager {
 	return modelmanager.NewModelManager(config.AppConfig)

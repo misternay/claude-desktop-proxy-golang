@@ -5,4 +5,8 @@ server
 claude-code-proxy
 claude-code-proxy-*
 *.exe
+
+# Config — keep real keys out of git. Only the example is tracked.
+config.yaml
+config.local.yaml
 .env
