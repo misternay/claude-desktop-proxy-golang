@@ -76,3 +76,72 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          body: |
+            ## 📦 Binaries
+
+            | Platform | Architecture | Download |
+            |----------|-------------|----------|
+            | Linux | x86_64 | `claude-code-proxy-linux-amd64` |
+            | Linux | ARM64 | `claude-code-proxy-linux-arm64` |
+            | macOS | Intel | `claude-code-proxy-darwin-amd64` |
+            | macOS | Apple Silicon | `claude-code-proxy-darwin-arm64` |
+            | Windows | x86_64 | `claude-code-proxy-windows-amd64.exe` |
+
+            ## 🚀 Quick Start
+
+            **1. Download the binary for your platform** (see table above).
+
+            **2. Make it executable** (Linux/macOS only):
+            ```bash
+            chmod +x claude-code-proxy-*
+            ```
+
+            **3. Set your OpenAI API key:**
+            ```bash
+            export OPENAI_API_KEY="sk-..."
+            ```
+
+            **4. Run the proxy:**
+            ```bash
+            ./claude-code-proxy-linux-amd64
+            # or the appropriate binary for your platform
+            ```
+
+            The server starts on `http://0.0.0.0:8082` by default.
+
+            ## ⚙️ Configuration
+
+            All configuration is done via environment variables:
+
+            | Variable | Required | Default | Description |
+            |----------|----------|---------|-------------|
+            | `OPENAI_API_KEY` | ✅ Yes | — | Your OpenAI API key |
+            | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | OpenAI-compatible API endpoint |
+            | `ANTHROPIC_API_KEY` | No | — | Client API key for request validation |
+            | `BIG_MODEL` | No | `gpt-4o` | Model for complex requests |
+            | `MIDDLE_MODEL` | No | _(same as BIG_MODEL)_ | Model for medium requests |
+            | `SMALL_MODEL` | No | `gpt-4o-mini` | Model for simple requests |
+            | `HOST` | No | `0.0.0.0` | Bind address |
+            | `PORT` | No | `8082` | Server port |
+            | `LOG_LEVEL` | No | `INFO` | Log level |
+            | `REQUEST_TIMEOUT` | No | `90` | Request timeout in seconds |
+            | `MAX_RETRIES` | No | `2` | Max retry attempts |
+
+            Per-model API keys and base URLs are also supported:
+            `BIG_MODEL_API_KEY`, `BIG_MODEL_BASE_URL`, `MIDDLE_MODEL_API_KEY`, `MIDDLE_MODEL_BASE_URL`, `SMALL_MODEL_API_KEY`, `SMALL_MODEL_BASE_URL`.
+
+            ## 🔗 Point Claude Code at the Proxy
+
+            Set the Anthropic base URL in your Claude Code config:
+            ```bash
+            export ANTHROPIC_BASE_URL="http://localhost:8082"
+            ```
+
+            ## 🐳 Docker
+
+            ```bash
+            docker run -p 8082:8082 -e OPENAI_API_KEY="sk-..." ghcr.io/misternay/claude-desktop-proxy-golang:${{ github.ref_name }}
+            ```
+
+            ---
+            See the [README](https://github.com/misternay/claude-desktop-proxy-golang) for full documentation.
