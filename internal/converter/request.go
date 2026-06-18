@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // ConvertClaudeToOpenAI converts a Claude MessagesRequest to an OpenAI chat completion request.
@@ -122,14 +123,7 @@ func extractSystemContent(system any) string {
 			}
 		}
 		if len(parts) > 0 {
-			result := ""
-			for i, p := range parts {
-				if i > 0 {
-					result += "\n"
-				}
-				result += p
-			}
-			return result
+			return strings.Join(parts, "\n")
 		}
 	}
 	return ""
@@ -171,16 +165,9 @@ func convertClaudeUserMessage(msg *model.Message) map[string]any {
 					}
 				}
 			}
-			combined := ""
-			for i, t := range texts {
-				if i > 0 {
-					combined += "\n"
-				}
-				combined += t
-			}
 			return map[string]any{
 				"role":    "user",
-				"content": combined,
+				"content": strings.Join(texts, "\n"),
 			}
 		}
 
@@ -306,9 +293,9 @@ func convertClaudeToolResults(msg *model.Message) []map[string]any {
 			toolUseID, _ := m["tool_use_id"].(string)
 			content := parseToolResultContent(m["content"])
 			results = append(results, map[string]any{
-				"role":        "tool",
+				"role":         "tool",
 				"tool_call_id": toolUseID,
-				"content":     content,
+				"content":      content,
 			})
 		}
 	}
@@ -336,14 +323,7 @@ func parseToolResultContent(content any) string {
 			}
 		}
 		if len(texts) > 0 {
-			result := ""
-			for i, t := range texts {
-				if i > 0 {
-					result += "\n"
-				}
-				result += t
-			}
-			return result
+			return strings.Join(texts, "\n")
 		}
 	}
 	// Fallback: marshal to JSON string
@@ -373,14 +353,7 @@ func extractTextFromContent(content any) string {
 			}
 		}
 		if len(texts) > 0 {
-			result := ""
-			for i, t := range texts {
-				if i > 0 {
-					result += "\n"
-				}
-				result += t
-			}
-			return result
+			return strings.Join(texts, "\n")
 		}
 	}
 	return ""

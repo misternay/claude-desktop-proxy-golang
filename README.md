@@ -120,6 +120,24 @@ claude
 
 All settings are via environment variables. See `.env.example` for the full list.
 
+### Using a .env file
+
+The app reads from environment variables at startup — it does not auto-load `.env` files. To use one:
+
+```bash
+# Copy the example
+cp .env.example .env
+
+# Edit with your values
+nano .env   # or vim, code, etc.
+
+# Source it before running (set -a auto-exports all variables)
+set -a && source .env && set +a
+
+# Now run the server
+./claude-code-proxy
+```
+
 ### Required
 
 | Variable | Description |

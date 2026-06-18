@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"os"
@@ -10,24 +11,24 @@ import (
 
 // Config holds all configuration for the proxy server.
 type Config struct {
-	OpenAIAPIKey     string
-	AnthropicAPIKey  string
-	OpenAIBaseURL    string
-	AzureAPIVersion  string
-	Host             string
-	Port             int
-	LogLevel         string
-	MaxTokensLimit   int
-	MinTokensLimit   int
-	MaxTokens        int
-	MinTokens        int
-	RequestTimeout   int
-	MaxRetries       int
-	BigModel         string
-	MiddleModel      string
-	SmallModel       string
-	BigModelAPIKey   string
-	BigModelBaseURL  string
+	OpenAIAPIKey       string
+	AnthropicAPIKey    string
+	OpenAIBaseURL      string
+	AzureAPIVersion    string
+	Host               string
+	Port               int
+	LogLevel           string
+	MaxTokensLimit     int
+	MinTokensLimit     int
+	MaxTokens          int
+	MinTokens          int
+	RequestTimeout     int
+	MaxRetries         int
+	BigModel           string
+	MiddleModel        string
+	SmallModel         string
+	BigModelAPIKey     string
+	BigModelBaseURL    string
 	MiddleModelAPIKey  string
 	MiddleModelBaseURL string
 	SmallModelAPIKey   string
@@ -110,18 +111,19 @@ func (c *Config) Validate() error {
 // ValidateAPIKey checks that the OpenAI API key has a valid prefix.
 func (c *Config) ValidateAPIKey() error {
 	if !strings.HasPrefix(c.OpenAIAPIKey, "sk-") {
-		return fmt.Errorf("OpenAI API key must start with 'sk-', got: %s", c.OpenAIAPIKey[:min(5, len(c.OpenAIAPIKey))]+"...")
+		return fmt.Errorf("OpenAI API key must start with 'sk-'")
 	}
 	return nil
 }
 
 // ValidateClientAPIKey checks the provided client key against the configured Anthropic API key.
+// Uses constant-time comparison to prevent timing attacks.
 func (c *Config) ValidateClientAPIKey(clientKey string) bool {
 	if c.AnthropicAPIKey == "" {
 		// No Anthropic key configured, skip validation
 		return true
 	}
-	return clientKey == c.AnthropicAPIKey
+	return subtle.ConstantTimeCompare([]byte(clientKey), []byte(c.AnthropicAPIKey)) == 1
 }
 
 // GetCustomHeaders reads CUSTOM_HEADER_* environment variables and returns them as a map.

@@ -9,14 +9,6 @@ import (
 	"claude-code-proxy-go/internal/modelmanager"
 )
 
-func init() {
-	// Ensure config is loaded for tests
-	if config.AppConfig == nil {
-		// Set a test API key so NewConfig doesn't panic
-		// (config.init() already ran, but we may need to override)
-	}
-}
-
 func newTestModelManager() *modelmanager.ModelManager {
 	return modelmanager.NewModelManager(config.AppConfig)
 }

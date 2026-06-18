@@ -21,15 +21,37 @@ type OpenAIClient struct {
 	CustomHeaders  map[string]string
 	ActiveRequests map[string]context.CancelFunc
 	mu             sync.RWMutex
+	httpClient     *http.Client // Shared client for non-streaming requests (has timeout)
+	streamClient   *http.Client // Shared client for SSE streaming (no client-level timeout; relies on ctx)
 }
 
 // NewOpenAIClient creates a new OpenAI client.
 func NewOpenAIClient(timeout int, apiVersion string, customHeaders map[string]string) *OpenAIClient {
+	// Shared transport for both clients — enables connection reuse across request types.
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100, // proxy hits one host; match MaxIdleConns to avoid churn
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives:   false,
+	}
+
 	return &OpenAIClient{
 		Timeout:        time.Duration(timeout) * time.Second,
 		APIVersion:     apiVersion,
 		CustomHeaders:  customHeaders,
 		ActiveRequests: make(map[string]context.CancelFunc),
+		// Non-streaming: enforce a hard deadline so hung connections are released.
+		httpClient: &http.Client{
+			Timeout:   time.Duration(timeout) * time.Second,
+			Transport: transport,
+		},
+		// Streaming (SSE): no client-level timeout — the stream can run arbitrarily long.
+		// Cancellation is handled via the request context.
+		streamClient: &http.Client{
+			Timeout:   0,
+			Transport: transport,
+		},
 	}
 }
 
@@ -67,9 +89,8 @@ func (c *OpenAIClient) CreateChatCompletion(
 	// Set headers
 	c.setHeaders(req, apiKey)
 
-	// Send request
-	httpClient := &http.Client{Timeout: c.Timeout}
-	resp, err := httpClient.Do(req)
+	// Send request using shared HTTP client
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -140,9 +161,8 @@ func (c *OpenAIClient) CreateChatCompletionStream(
 	c.setHeaders(req, apiKey)
 	req.Header.Set("Accept", "text/event-stream")
 
-	// Send request
-	httpClient := &http.Client{Timeout: c.Timeout}
-	resp, err := httpClient.Do(req)
+	// Use the stream client (no client-level timeout) so long SSE streams are not aborted.
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		c.untrackRequest(requestID)
 		return nil, fmt.Errorf("request failed: %w", err)
