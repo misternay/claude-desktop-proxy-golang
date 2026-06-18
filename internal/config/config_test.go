@@ -330,23 +330,10 @@ func TestResolveConfigPath_NotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if homeConfigExists(t) || fileExists("/etc/claude-code-proxy/config.yaml") {
-		t.Skip("host has a default-path config; cannot test not-found cleanly")
-	}
-
 	_, err = resolveConfigPath("")
 	if !errors.Is(err, ErrConfigNotFound) {
 		t.Fatalf("expected ErrConfigNotFound, got %v", err)
 	}
-}
-
-func homeConfigExists(t *testing.T) bool {
-	t.Helper()
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return false
-	}
-	return fileExists(filepath.Join(home, ".claude-code-proxy", "config.yaml"))
 }
 
 // ---------------------------------------------------------------------------

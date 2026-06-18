@@ -62,11 +62,11 @@ go run ./cmd/server
 # Build the image
 docker build -t claude-code-proxy .
 
-# Run, mounting your config at the default discovery path
+# Run, mounting your config at the working directory
 docker run -d \
   --name claude-proxy \
   -p 8082:8082 \
-  -v ./config.yaml:/etc/claude-code-proxy/config.yaml:ro \
+  -v ./config.yaml:/config.yaml:ro \
   claude-code-proxy
 ```
 
@@ -123,11 +123,9 @@ ANTHROPIC_BASE_URL=http://localhost:8082 claude
 All settings live in a single `config.yaml`. The proxy searches, in order:
 
 1. Path given to `--config <path>` (e.g. `./claude-code-proxy --config /opt/prod/config.yaml`)
-2. `./config.yaml`
-3. `~/.claude-code-proxy/config.yaml`
-4. `/etc/claude-code-proxy/config.yaml` (Docker: mount here)
+2. `./config.yaml` — the current working directory
 
-First match wins. If none is found, the proxy exits with an error listing the searched paths. See [`config.example.yaml`](./config.example.yaml) for the full annotated schema.
+If no config file is found, the proxy exits with an error. See [`config.example.yaml`](./config.example.yaml) for the full annotated schema.
 
 > Numeric values use explicit-zero semantics: setting `port: 0` (or `max_retries: 0`, etc.) is honored as the literal zero, not replaced by the default. Omit the key entirely to get the default.
 

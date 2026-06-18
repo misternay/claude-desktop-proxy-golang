@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -184,12 +182,10 @@ func parseConfigFlag(args []string) (string, error) {
 
 // resolveConfigPath picks the config file location in priority order:
 //  1. explicit (from --config) — must exist or ErrConfigFlagMissing is returned
-//  2. ./config.yaml
-//  3. ~/.claude-code-proxy/config.yaml
-//  4. /etc/claude-code-proxy/config.yaml
+//  2. ./config.yaml (the current working directory)
 //
-// If none of the default locations exist, resolveConfigPath returns an
-// ErrConfigNotFound error whose message names the searched candidates.
+// If no config file exists at any searched location, resolveConfigPath returns
+// an ErrConfigNotFound error whose message names the searched candidate.
 func resolveConfigPath(explicit string) (string, error) {
 	if explicit != "" {
 		if !fileExists(explicit) {
@@ -198,21 +194,17 @@ func resolveConfigPath(explicit string) (string, error) {
 		return explicit, nil
 	}
 
-	candidates := []string{"config.yaml"}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		candidates = append(candidates, filepath.Join(home, ".claude-code-proxy", "config.yaml"))
-	}
-	candidates = append(candidates, "/etc/claude-code-proxy/config.yaml")
-
-	for _, c := range candidates {
-		if fileExists(c) {
-			return c, nil
-		}
+	// Default: only the current working directory. There is no fallback to a
+	// home or system location, so running the binary without a config.yaml
+	// next to it (or an explicit --config) is a hard error.
+	candidate := "config.yaml"
+	if fileExists(candidate) {
+		return candidate, nil
 	}
 	return "", fmt.Errorf(
-		"%w. searched: %s. create one (see config.example.yaml) or pass --config <path>",
+		"%w. searched: %s. create one (see config.example.yaml) in the current directory or pass --config <path>",
 		ErrConfigNotFound,
-		strings.Join(candidates, ", "),
+		candidate,
 	)
 }
 

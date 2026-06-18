@@ -35,9 +35,8 @@ func main() {
 		fmt.Println("Configuration:")
 		fmt.Println("  Configuration is read from config.yaml. The proxy searches, in order:")
 		fmt.Println("    1. Path given to --config")
-		fmt.Println("    2. ./config.yaml")
-		fmt.Println("    3. ~/.claude-code-proxy/config.yaml")
-		fmt.Println("    4. /etc/claude-code-proxy/config.yaml")
+		fmt.Println("    2. ./config.yaml (the current working directory)")
+		fmt.Println("  If no config.yaml is found, the proxy exits with an error.")
 		fmt.Println("  See config.example.yaml for all available options.")
 		os.Exit(0)
 	}

@@ -10,8 +10,9 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /claude-code-proxy /claude-code-proxy
 EXPOSE 8082
 
-# Configuration is read from config.yaml. Mount your config at the default
-# discovery path so no extra flags are needed:
-#   docker run -v ./config.yaml:/etc/claude-code-proxy/config.yaml ...
-# Default search order: /etc/claude-code-proxy/config.yaml is used here.
+# Configuration is read from config.yaml in the current working directory.
+# Mount your config at /config.yaml (the container's default CWD is /):
+#   docker run -v ./config.yaml:/config.yaml ...
+# Or pass an explicit path:
+#   docker run -v ./config.yaml:/opt/cfg.yaml ... /claude-code-proxy --config /opt/cfg.yaml
 CMD ["/claude-code-proxy"]
