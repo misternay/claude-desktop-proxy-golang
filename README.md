@@ -27,6 +27,48 @@ A high-performance proxy server that accepts **Claude API** format requests and 
 
 ---
 
+## How to Use (Step by Step)
+
+### 1. Setup & startup
+
+```mermaid
+flowchart TD
+    A["1. Copy the config template<br/>cp config.example.yaml config.yaml"] --> B["2. Edit config.yaml<br/>set openai_api_key"]
+    B --> C["3. Build the binary<br/>go build -o claude-code-proxy ./cmd/server"]
+    C --> D["4. Run the proxy<br/>./claude-code-proxy"]
+    D --> E{"config.yaml<br/>in cwd?"}
+    E -- Yes --> F["✅ Loads config.yaml<br/>Server listens on 0.0.0.0:8082"]
+    E -- No --> G["❌ Exits with error:<br/>no config file found"]
+    G --> H["Pass --config &lt;path&gt;<br/>or add config.yaml next to binary"]
+    H --> D
+
+    style F fill:#2d7d46,color:#fff
+    style G fill:#b3261e,color:#fff
+```
+
+### 2. Runtime request flow
+
+```mermaid
+flowchart LR
+    CC["Claude Code<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:8082"] -->|"POST /v1/messages<br/>(Claude format)"| P
+    P["claude-code-proxy<br/>:8082"] -->|"translate<br/>Claude → OpenAI"| T{Model tier?}
+    T -- haiku --> SM["small model<br/>e.g. gpt-4o-mini"]
+    T -- sonnet --> MM["middle model<br/>e.g. gpt-4o"]
+    T -- opus --> BM["big model<br/>e.g. gpt-4o"]
+    SM --> U["OpenAI-compatible<br/>upstream API"]
+    MM --> U
+    BM --> U
+    U -->|"translate<br/>OpenAI → Claude"| P
+    P -->|"SSE / JSON response<br/>(Claude format)"| CC
+
+    style P fill:#1f6feb,color:#fff
+    style U fill:#6b7280,color:#fff
+    style CC fill:#8251d6,color:#fff
+```
+
+---
+
+
 ## Quick Start
 
 ### Option 1: Build from source
