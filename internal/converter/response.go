@@ -140,7 +140,7 @@ func ConvertOpenAIStreamingToClaude(
 			"stop_reason":   nil,
 			"stop_sequence": nil,
 			"usage": map[string]any{
-				"input_tokens": 0,
+				"input_tokens":  0,
 				"output_tokens": 0,
 			},
 		},
@@ -148,8 +148,8 @@ func ConvertOpenAIStreamingToClaude(
 
 	// Write content_block_start for text (index 0)
 	writeSSEEvent(w, "content_block_start", map[string]any{
-		"type":         "content_block_start",
-		"index":        0,
+		"type":  "content_block_start",
+		"index": 0,
 		"content_block": map[string]any{
 			"type": "text",
 			"text": "",
@@ -163,22 +163,22 @@ func ConvertOpenAIStreamingToClaude(
 
 	// Track state
 	type toolCallState struct {
-		id        string
-		name      string
-		argsBuf   strings.Builder
-		started   bool
+		id      string
+		name    string
+		argsBuf strings.Builder
+		started bool
 	}
 
 	var (
-		contentBlockIndex   = 0
-		textBlockStarted    = true
-		toolCalls           = make(map[int]*toolCallState)
-		currentTextBlock    = 0
-		inputTokens         = 0
-		outputTokens        = 0
-		cachedTokens        = 0
-		stopReason          = "end_turn"
-		hasTextContent      = false
+		contentBlockIndex = 0
+		textBlockStarted  = true
+		toolCalls         = make(map[int]*toolCallState)
+		currentTextBlock  = 0
+		inputTokens       = 0
+		outputTokens      = 0
+		cachedTokens      = 0
+		stopReason        = "end_turn"
+		hasTextContent    = false
 	)
 
 	scanner := bufio.NewScanner(openaiStream)
@@ -334,7 +334,7 @@ func ConvertOpenAIStreamingToClaude(
 							"type":  "content_block_delta",
 							"index": contentBlockIndex,
 							"delta": map[string]any{
-								"type":          "input_json_delta",
+								"type":         "input_json_delta",
 								"partial_json": argsSoFar,
 							},
 						})
@@ -349,6 +349,10 @@ func ConvertOpenAIStreamingToClaude(
 		if reason, ok := choiceMap["finish_reason"].(string); ok && reason != "" {
 			stopReason = mapFinishReason(reason)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		slog.Error("scanner error while reading SSE stream", "error", err)
 	}
 
 	// Close the last open content block
