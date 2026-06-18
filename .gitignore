@@ -1,2 +1,7 @@
 .serena
 server
+
+# Binaries
+claude-code-proxy
+claude-code-proxy-*
+*.exe

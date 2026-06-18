@@ -15,10 +15,12 @@ import (
 	"claude-code-proxy-go/internal/handler"
 )
 
+var version = "dev"
+
 func main() {
 	// Parse --help flag
 	if len(os.Args) > 1 && os.Args[1] == "--help" {
-		fmt.Println("Claude-to-OpenAI API Proxy v1.0.0")
+		fmt.Printf("Claude-to-OpenAI API Proxy %s\n", version)
 		fmt.Println()
 		fmt.Println("A proxy server that accepts Claude API requests and forwards them to OpenAI-compatible APIs.")
 		fmt.Println()
@@ -40,7 +42,7 @@ func main() {
 	}
 
 	// Print config summary with emoji
-	fmt.Println("🚀 Claude-to-OpenAI API Proxy v1.0.0")
+	fmt.Printf("🚀 Claude-to-OpenAI API Proxy %s\n", version)
 	fmt.Println("✅ Configuration loaded successfully")
 	fmt.Printf("   OpenAI Base URL: %s\n", config.AppConfig.OpenAIBaseURL)
 	fmt.Printf("   Big Model:       %s\n", config.AppConfig.BigModel)
