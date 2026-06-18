@@ -1,5 +1,7 @@
 # Claude Code Proxy (Go)
 
+> This project is a rewrite of [9homme/claude-code-proxy](https://github.com/9homme/claude-code-proxy) for personal use only, not for commercial use.
+
 A high-performance proxy server that accepts **Claude API** format requests and forwards them to **OpenAI-compatible** API providers. Written in Go with **zero external dependencies** — only the standard library.
 
 ## Why Go?
