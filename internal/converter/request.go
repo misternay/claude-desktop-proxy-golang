@@ -386,7 +386,7 @@ func convertToolChoice(toolChoice *model.ToolChoice) any {
 	case "auto":
 		return "auto"
 	case "any":
-		return "auto"
+		return "required"
 	case "tool":
 		return map[string]any{
 			"type": "function",

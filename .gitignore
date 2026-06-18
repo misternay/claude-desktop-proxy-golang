@@ -5,3 +5,4 @@ server
 claude-code-proxy
 claude-code-proxy-*
 *.exe
+.env

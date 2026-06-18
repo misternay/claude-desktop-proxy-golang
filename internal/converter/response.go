@@ -178,7 +178,6 @@ func ConvertOpenAIStreamingToClaude(
 		outputTokens      = 0
 		cachedTokens      = 0
 		stopReason        = "end_turn"
-		hasTextContent    = false
 	)
 
 	scanner := bufio.NewScanner(openaiStream)
@@ -247,7 +246,6 @@ func ConvertOpenAIStreamingToClaude(
 
 		// Handle text content
 		if content, ok := delta["content"].(string); ok && content != "" {
-			hasTextContent = true
 			writeSSEEvent(w, "content_block_delta", map[string]any{
 				"type":  "content_block_delta",
 				"index": currentTextBlock,
@@ -293,20 +291,19 @@ func ConvertOpenAIStreamingToClaude(
 
 				// Start tool call content block when we have id and name
 				if !state.started && state.id != "" && state.name != "" {
-					if textBlockStarted && !hasTextContent {
-						// Close the initial text block since we're switching to tool calls
+					// Close whatever content block is currently open (text or previous tool_use)
+					if textBlockStarted {
 						writeSSEEvent(w, "content_block_stop", map[string]any{
 							"type":  "content_block_stop",
-							"index": currentTextBlock,
+							"index": contentBlockIndex,
 						})
 						textBlockStarted = false
-					} else if hasTextContent && contentBlockIndex == 0 {
-						// Close text block
+					} else if contentBlockIndex > 0 {
+						// A previous tool_use block is open — close it before starting the next
 						writeSSEEvent(w, "content_block_stop", map[string]any{
 							"type":  "content_block_stop",
-							"index": currentTextBlock,
+							"index": contentBlockIndex,
 						})
-						textBlockStarted = false
 					}
 
 					contentBlockIndex++
@@ -323,24 +320,18 @@ func ConvertOpenAIStreamingToClaude(
 					state.started = true
 				}
 
-				// Emit argument deltas when args buffer has valid JSON
+				// Emit argument fragments immediately as partial_json deltas.
+				// Claude clients concatenate these fragments to build the full JSON input.
 				if state.started && state.argsBuf.Len() > 0 {
-					argsSoFar := state.argsBuf.String()
-					// Try to parse - if it's valid JSON, we can emit delta
-					var parsed any
-					if json.Unmarshal([]byte(argsSoFar), &parsed) == nil {
-						// Emit as input_json_delta
-						writeSSEEvent(w, "content_block_delta", map[string]any{
-							"type":  "content_block_delta",
-							"index": contentBlockIndex,
-							"delta": map[string]any{
-								"type":         "input_json_delta",
-								"partial_json": argsSoFar,
-							},
-						})
-						// Reset buffer since we've emitted it
-						state.argsBuf.Reset()
-					}
+					writeSSEEvent(w, "content_block_delta", map[string]any{
+						"type":  "content_block_delta",
+						"index": contentBlockIndex,
+						"delta": map[string]any{
+							"type":         "input_json_delta",
+							"partial_json": state.argsBuf.String(),
+						},
+					})
+					state.argsBuf.Reset()
 				}
 			}
 		}

@@ -111,9 +111,7 @@ curl -X POST http://localhost:8082/v1/messages \
 Point Claude Code at this proxy instead of the Anthropic API:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:8082
-export ANTHROPIC_API_KEY=dummy  # or set ANTHROPIC_API_KEY on the proxy for validation
-claude
+ANTHROPIC_BASE_URL=http://localhost:8082 claude
 ```
 
 ---
