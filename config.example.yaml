@@ -28,10 +28,12 @@ port: 8082
 log_level: INFO
 
 # ─── Token limits ───────────────────────────────────────────────────────────
-max_tokens_limit: 4096
+# Upper clamp for requested max_tokens. Claude 4 models commonly request
+# 16000–64000 output tokens; 4096 here would truncate those responses.
+max_tokens_limit: 64000
 min_tokens_limit: 100
 # Optional explicit overrides (default to the limits above).
-# max_tokens: 4096
+# max_tokens: 64000
 # min_tokens: 100
 
 # ─── Connection ─────────────────────────────────────────────────────────────

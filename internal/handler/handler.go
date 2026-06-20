@@ -202,7 +202,39 @@ func CountTokens(w http.ResponseWriter, r *http.Request) {
 
 // ListModels handles GET /v1/models - returns available Claude models.
 func ListModels(w http.ResponseWriter, r *http.Request) {
+	// Claude 4 family — current flagship lineup.
 	models := []map[string]any{
+		{
+			"id":           "claude-opus-4-1-20250805",
+			"display_name": "Claude Opus 4.1",
+			"created_at":   "2025-08-05T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-4-5-20250929",
+			"display_name": "Claude Sonnet 4.5",
+			"created_at":   "2025-09-29T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-haiku-4-5-20251001",
+			"display_name": "Claude Haiku 4.5",
+			"created_at":   "2025-10-01T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-opus-4-20250514",
+			"display_name": "Claude Opus 4",
+			"created_at":   "2025-05-14T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-4-20250514",
+			"display_name": "Claude Sonnet 4",
+			"created_at":   "2025-05-14T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		// Claude 3.5 family — retained for backward compatibility.
 		{
 			"id":           "claude-3-5-sonnet-20241022",
 			"display_name": "Claude 3.5 Sonnet",
@@ -215,6 +247,7 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 			"created_at":   "2024-10-22T00:00:00Z",
 			"created_by":   "anthropic",
 		},
+		// Claude 3 family — retained for backward compatibility.
 		{
 			"id":           "claude-3-opus-20240229",
 			"display_name": "Claude 3 Opus",

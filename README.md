@@ -140,7 +140,7 @@ curl http://localhost:8082/test-connection
 curl -X POST http://localhost:8082/v1/messages \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-sonnet-4-5-20250929",
     "max_tokens": 100,
     "messages": [
       {"role": "user", "content": "Hello!"}
@@ -210,7 +210,7 @@ openai_api_key: sk-your-key-here
 
 | Key | Default | Description |
 |----------|---------|-------------|
-| `max_tokens_limit` | `4096` | Upper clamp for requested `max_tokens` |
+| `max_tokens_limit` | `64000` | Upper clamp for requested `max_tokens` |
 | `min_tokens_limit` | `100` | Lower clamp for requested `max_tokens` |
 | `max_tokens` | _(= max_tokens_limit)_ | Override the upper clamp |
 | `min_tokens` | _(= min_tokens_limit)_ | Override the lower clamp |
