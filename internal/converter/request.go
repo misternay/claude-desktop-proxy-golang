@@ -349,6 +349,13 @@ func convertClaudeToolResults(msg *model.Message) []map[string]any {
 		if m["type"] == model.ContentToolResult {
 			toolUseID, _ := m["tool_use_id"].(string)
 			content := parseToolResultContent(m["content"])
+			if strings.TrimSpace(content) == "" {
+				// Strict upstreams (e.g. Huawei ModelArts) reject tool
+				// messages whose content is empty — the same validation that
+				// rejects empty user messages. Tools legitimately return no
+				// output, so substitute a placeholder.
+				content = "(no output)"
+			}
 			results = append(results, map[string]any{
 				"role":         "tool",
 				"tool_call_id": toolUseID,

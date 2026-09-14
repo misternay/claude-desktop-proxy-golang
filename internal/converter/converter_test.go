@@ -672,6 +672,57 @@ func TestStreamingThinkingBlocks(t *testing.T) {
 	}
 }
 
+// TestConvertEmptyToolResultPlaceholder verifies that tool_result blocks with
+// no output convert to a tool message with placeholder content instead of
+// empty content (strict upstreams reject empty tool messages).
+func TestConvertEmptyToolResultPlaceholder(t *testing.T) {
+	mm := newTestModelManager()
+
+	cases := []struct {
+		name    string
+		content any
+	}{
+		{"nil content", nil},
+		{"empty string", ""},
+		{"empty text block", []any{map[string]any{"type": "text", "text": ""}}},
+		{"whitespace only", "   "},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &model.MessagesRequest{
+				Model:     "claude-sonnet-4-6",
+				MaxTokens: 1024,
+				Messages: []model.Message{
+					{Role: "user", Content: "run it"},
+					{Role: "assistant", Content: []any{
+						map[string]any{"type": "tool_use", "id": "toolu_e1", "name": "run", "input": map[string]any{}},
+					}},
+					{Role: "user", Content: []any{
+						map[string]any{"type": "tool_result", "tool_use_id": "toolu_e1", "content": tc.content},
+					}},
+				},
+			}
+
+			result := ConvertClaudeToOpenAI(req, mm)
+			messages := result["messages"].([]map[string]any)
+			toolMsgs := 0
+			for _, msg := range messages {
+				if msg["role"] != "tool" {
+					continue
+				}
+				toolMsgs++
+				if content, _ := msg["content"].(string); content != "(no output)" {
+					t.Errorf("expected '(no output)' placeholder, got %q", content)
+				}
+			}
+			if toolMsgs != 1 {
+				t.Fatalf("expected 1 tool message, got %d", toolMsgs)
+			}
+		})
+	}
+}
+
 func floatPtr(f float64) *float64 {
 	return &f
 }

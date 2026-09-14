@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"claude-code-proxy-go/internal/model"
 )
@@ -119,6 +120,10 @@ func ConvertOpenAIToClaudeResponse(openaiResponse map[string]any, originalReques
 	}
 }
 
+// StreamIdleTimeout is the longest the streaming converter waits between SSE
+// lines before treating the upstream as stalled. A var so tests can shorten it.
+var StreamIdleTimeout = 120 * time.Second
+
 // reasoningText extracts thinking text from an OpenAI-style message or delta.
 // DeepSeek/GLM-style upstreams expose it as reasoning_content; OpenRouter
 // uses reasoning.
@@ -218,35 +223,54 @@ func ConvertOpenAIStreamingToClaude(
 	// Set a large buffer for potentially long SSE lines
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
-	for scanner.Scan() {
-		// Check for disconnection
-		if isDisconnected != nil && isDisconnected() {
-			if cancelFn != nil {
-				cancelFn()
-			}
+	// Pump lines through a channel so the main loop can also select on the
+	// idle timer and the request context. readErr records a scanner failure
+	// (e.g. upstream closed the body abruptly); EOF is not an error.
+	lines := make(chan string, 64)
+	readErr := make(chan error, 1)
+	go func() {
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			readErr <- err
 			return
 		}
+		close(lines)
+	}()
 
-		line := scanner.Text()
+	idleTimer := time.NewTimer(StreamIdleTimeout)
+	defer idleTimer.Stop()
 
+	// abort is set when the stream terminates abnormally (in-stream error
+	// frame); the caller then skips the normal message_delta/message_stop
+	// epilogue. Declared before processLine so the closure can capture it.
+	abort := false
+
+	// processLine handles one raw SSE line. It is a closure over the block
+	// state so the main loop stays a tight select. It returns false when the
+	// stream should terminate early ([DONE], or an in-stream error frame);
+	// an error frame also sets abort so the caller skips the normal
+	// message_delta/message_stop epilogue.
+	processLine := func(line string) bool {
 		// Skip non-data lines. Some upstreams (e.g. Huawei ModelArts via
 		// bifrost) emit "data:" without the spec's optional trailing space;
 		// accept both forms.
 		if !strings.HasPrefix(line, "data:") {
-			continue
+			return true
 		}
 
 		data := strings.TrimPrefix(line, "data:")
 		data = strings.TrimPrefix(data, " ")
 		if data == "[DONE]" {
-			break
+			return false
 		}
 
 		// Parse chunk JSON
 		var chunk map[string]any
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			slog.Debug("failed to parse SSE chunk", "error", err, "data", data)
-			continue
+			return true
 		}
 
 		// Surface in-stream error frames. Strict upstreams can return HTTP 200
@@ -268,7 +292,8 @@ func ConvertOpenAIStreamingToClaude(
 					"message": errMsg,
 				},
 			})
-			return
+			abort = true
+			return false
 		}
 
 		// Track usage from chunk
@@ -290,17 +315,17 @@ func ConvertOpenAIStreamingToClaude(
 		// Extract choices
 		choices, _ := chunk["choices"].([]any)
 		if len(choices) == 0 {
-			continue
+			return true
 		}
 
 		choiceMap, _ := choices[0].(map[string]any)
 		if choiceMap == nil {
-			continue
+			return true
 		}
 
 		delta, _ := choiceMap["delta"].(map[string]any)
 		if delta == nil {
-			continue
+			return true
 		}
 
 		// Handle reasoning content (thinking) — emitted as a thinking block
@@ -406,10 +431,66 @@ func ConvertOpenAIStreamingToClaude(
 		if reason, ok := choiceMap["finish_reason"].(string); ok && reason != "" {
 			stopReason = mapFinishReason(reason)
 		}
+		return true
 	}
 
-	if err := scanner.Err(); err != nil {
-		slog.Error("scanner error while reading SSE stream", "error", err)
+	done := false
+	for !done {
+		// Check for disconnection
+		if isDisconnected != nil && isDisconnected() {
+			if cancelFn != nil {
+				cancelFn()
+			}
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			slog.Debug("streaming request context cancelled")
+			if cancelFn != nil {
+				cancelFn()
+			}
+			return
+		case err := <-readErr:
+			slog.Error("scanner error while reading SSE stream", "error", err)
+			done = true
+		case line, ok := <-lines:
+			if !ok {
+				done = true
+				break
+			}
+			// Inactivity is measured between lines; any line (even a blank
+			// keep-alive) counts as progress.
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(StreamIdleTimeout)
+			if !processLine(line) {
+				done = true
+			}
+		case <-idleTimer.C:
+			slog.Warn("upstream stream stalled; cancelling", "idle_timeout", StreamIdleTimeout)
+			if cancelFn != nil {
+				cancelFn()
+			}
+			writeSSEEvent(w, "error", map[string]any{
+				"type": "error",
+				"error": map[string]any{
+					"type":    "api_error",
+					"message": fmt.Sprintf("upstream stream stalled for %s", StreamIdleTimeout),
+				},
+			})
+			return
+		}
+	}
+
+	// Abort after an in-stream error frame: the error event is already on
+	// the wire, so skip the normal message_delta/message_stop epilogue.
+	if abort {
+		return
 	}
 
 	// Guarantee at least one content block (empty text) so clients always

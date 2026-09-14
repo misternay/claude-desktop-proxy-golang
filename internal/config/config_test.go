@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -536,5 +537,59 @@ func TestDefault_YieldsHardcodedDefaults(t *testing.T) {
 	c := Default()
 	if c.Port != 8082 || c.BigModel != "gpt-4o" || c.OpenAIBaseURL != "https://api.openai.com/v1" {
 		t.Errorf("Default() not populated: %+v", c)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SecurityWarnings: pure method on *Config -> fully parallel table-driven.
+// The warning fires only for the wildcard hosts (0.0.0.0, ::) combined with
+// no anthropic_api_key; loopback hosts or a configured key stay silent.
+// ---------------------------------------------------------------------------
+
+func TestSecurityWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		host     string
+		apiKey   string
+		wantWarn bool
+	}{
+		{name: "wildcard host without client key warns", host: "0.0.0.0", apiKey: "", wantWarn: true},
+		{name: "ipv6 wildcard host without client key warns", host: "::", apiKey: "", wantWarn: true},
+		{name: "wildcard host with client key is silent", host: "0.0.0.0", apiKey: "sk-client", wantWarn: false},
+		{name: "ipv6 wildcard host with client key is silent", host: "::", apiKey: "sk-client", wantWarn: false},
+		{name: "ipv4 loopback without client key is silent", host: "127.0.0.1", apiKey: "", wantWarn: false},
+		{name: "ipv6 loopback without client key is silent", host: "::1", apiKey: "", wantWarn: false},
+		{name: "localhost without client key is silent", host: "localhost", apiKey: "", wantWarn: false},
+		{name: "named host without client key is silent", host: "proxy.internal", apiKey: "", wantWarn: false},
+		{name: "empty host without client key is silent", host: "", apiKey: "", wantWarn: false},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{Host: tc.host, AnthropicAPIKey: tc.apiKey}
+			warnings := cfg.SecurityWarnings()
+
+			if tc.wantWarn {
+				if len(warnings) != 1 {
+					t.Fatalf("expected exactly 1 warning, got %d: %v", len(warnings), warnings)
+				}
+				if !strings.Contains(warnings[0], tc.host) {
+					t.Errorf("warning should name the host %q: %q", tc.host, warnings[0])
+				}
+				for _, want := range []string{"all interfaces", "anthropic_api_key", "127.0.0.1"} {
+					if !strings.Contains(warnings[0], want) {
+						t.Errorf("warning should mention %q: %q", want, warnings[0])
+					}
+				}
+				return
+			}
+			if len(warnings) != 0 {
+				t.Errorf("expected no warnings, got %v", warnings)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -40,19 +41,65 @@ func InitHandlers() {
 	modelMgr = modelmanager.NewModelManager(config.AppConfig)
 }
 
-// CreateMessage handles POST /v1/messages - converts Claude requests to OpenAI and proxies them.
-func CreateMessage(w http.ResponseWriter, r *http.Request) {
-	var req model.MessagesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// maxRequestBodyBytes caps the accepted request body size. 64 MiB is large
+// enough for base64-encoded screenshots while still bounding proxy memory.
+const maxRequestBodyBytes = 64 << 20
+
+// decodeJSONBody decodes the request body into v under a hard size limit.
+// Decode failures respond in Claude error format: 413 when the body exceeded
+// the limit (*http.MaxBytesError), 400 for any other malformed input.
+// Returns false when the response has been written and the caller must return.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		status := http.StatusBadRequest
+		errType := "invalid_request_error"
+		msg := fmt.Sprintf("Invalid request body: %s", err.Error())
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			status = http.StatusRequestEntityTooLarge
+			msg = fmt.Sprintf("request body too large: limit is %d bytes", maxRequestBodyBytes)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]any{
 			"type": "error",
 			"error": map[string]any{
-				"type":    "invalid_request_error",
-				"message": fmt.Sprintf("Invalid request body: %s", err.Error()),
+				"type":    errType,
+				"message": msg,
 			},
 		})
+		return false
+	}
+	return true
+}
+
+// writeUpstreamError responds to the client with the Claude error matching an
+// upstream failure, preserving the upstream message text. *client.OpenAIError
+// carries the upstream HTTP status and is mapped via ClaudeError; any other
+// error (network failure, marshal failure) degrades to 502 api_error.
+func writeUpstreamError(w http.ResponseWriter, context string, err error) {
+	status := http.StatusBadGateway
+	errType := "api_error"
+	var openaiErr *client.OpenAIError
+	if errors.As(err, &openaiErr) {
+		status, errType = openaiErr.ClaudeError()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]any{
+		"type": "error",
+		"error": map[string]any{
+			"type":    errType,
+			"message": fmt.Sprintf("%s: %s", context, err.Error()),
+		},
+	})
+}
+
+// CreateMessage handles POST /v1/messages - converts Claude requests to OpenAI and proxies them.
+func CreateMessage(w http.ResponseWriter, r *http.Request) {
+	var req model.MessagesRequest
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -71,15 +118,7 @@ func CreateMessage(w http.ResponseWriter, r *http.Request) {
 		// Streaming response
 		stream, err := openAIClient.CreateChatCompletionStream(ctx, openaiReq, apiKey, baseURL, requestID)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]any{
-				"type": "error",
-				"error": map[string]any{
-					"type":    "api_error",
-					"message": fmt.Sprintf("Failed to create stream: %s", err.Error()),
-				},
-			})
+			writeUpstreamError(w, "Failed to create stream", err)
 			return
 		}
 		defer stream.Close()
@@ -114,15 +153,7 @@ func CreateMessage(w http.ResponseWriter, r *http.Request) {
 		// Non-streaming response
 		openaiResp, err := openAIClient.CreateChatCompletion(ctx, openaiReq, apiKey, baseURL, requestID)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]any{
-				"type": "error",
-				"error": map[string]any{
-					"type":    "api_error",
-					"message": fmt.Sprintf("Failed to create completion: %s", err.Error()),
-				},
-			})
+			writeUpstreamError(w, "Failed to create completion", err)
 			return
 		}
 
@@ -137,16 +168,7 @@ func CreateMessage(w http.ResponseWriter, r *http.Request) {
 // CountTokens handles POST /v1/messages/count_tokens - estimates token count.
 func CountTokens(w http.ResponseWriter, r *http.Request) {
 	var req model.TokenCountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"type": "error",
-			"error": map[string]any{
-				"type":    "invalid_request_error",
-				"message": fmt.Sprintf("Invalid request body: %s", err.Error()),
-			},
-		})
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -349,15 +371,15 @@ func Root(w http.ResponseWriter, r *http.Request) {
 		"name":    "Claude-to-OpenAI Proxy",
 		"version": "1.0.0",
 		"config": map[string]any{
-			"openai_base_url":  config.AppConfig.OpenAIBaseURL,
-			"big_model":        config.AppConfig.BigModel,
-			"middle_model":     config.AppConfig.MiddleModel,
-			"small_model":      config.AppConfig.SmallModel,
-			"host":             config.AppConfig.Host,
-			"port":             config.AppConfig.Port,
-			"log_level":        config.AppConfig.LogLevel,
-			"request_timeout":  config.AppConfig.RequestTimeout,
-			"max_retries":      config.AppConfig.MaxRetries,
+			"openai_base_url": config.AppConfig.OpenAIBaseURL,
+			"big_model":       config.AppConfig.BigModel,
+			"middle_model":    config.AppConfig.MiddleModel,
+			"small_model":     config.AppConfig.SmallModel,
+			"host":            config.AppConfig.Host,
+			"port":            config.AppConfig.Port,
+			"log_level":       config.AppConfig.LogLevel,
+			"request_timeout": config.AppConfig.RequestTimeout,
+			"max_retries":     config.AppConfig.MaxRetries,
 		},
 		"endpoints": endpoints,
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -69,6 +70,15 @@ func main() {
 	}
 	fmt.Println()
 
+	// Print security warnings for risky configuration combinations.
+	if warnings := config.AppConfig.SecurityWarnings(); len(warnings) > 0 {
+		fmt.Println("⚠️  Security warnings:")
+		for _, w := range warnings {
+			fmt.Printf("   - %s\n", w)
+		}
+		fmt.Println()
+	}
+
 	// Initialize handlers
 	handler.InitHandlers()
 
@@ -90,6 +100,14 @@ func main() {
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", config.AppConfig.Host, config.AppConfig.Port)
+
+	// Bind before announcing readiness so a port conflict fails fast with a
+	// clear message instead of after the "Listening" banner.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("❌ Cannot listen on %s: %v\n   Hint: the port may already be in use — is another claude-code-proxy instance still running?", addr, err)
+	}
+
 	fmt.Printf("   Server: %s\n", addr)
 	fmt.Println("🌐 Listening for requests...")
 
@@ -105,7 +123,7 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()

@@ -287,6 +287,27 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// SecurityWarnings returns human-readable warnings for risky configuration
+// combinations. It warns when the proxy would listen on all interfaces with no
+// client auth configured (empty anthropic_api_key) — in that state anyone on
+// the network can spend the upstream API key. Loopback hosts and configs with
+// a client key set produce no warnings. The caller decides how to surface
+// these (main logs them at startup).
+func (c *Config) SecurityWarnings() []string {
+	if c.AnthropicAPIKey != "" {
+		return nil
+	}
+	if c.Host == "0.0.0.0" || c.Host == "::" {
+		return []string{
+			fmt.Sprintf(
+				"listening on all interfaces (host: %s) with no anthropic_api_key set — anyone on your network can use your upstream API key; set host: 127.0.0.1 or configure anthropic_api_key",
+				c.Host,
+			),
+		}
+	}
+	return nil
+}
+
 // ValidateClientAPIKey checks the provided client key against the configured
 // Anthropic API key using constant-time comparison to prevent timing attacks.
 // When no Anthropic key is configured, client validation is disabled

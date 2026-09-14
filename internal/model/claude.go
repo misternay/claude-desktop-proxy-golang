@@ -81,7 +81,7 @@ type TokenCountRequest struct {
 	System     any             `json:"system,omitempty"`
 	Tools      []Tool          `json:"tools,omitempty"`
 	Thinking   *ThinkingConfig `json:"thinking,omitempty"`
-	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
+	ToolChoice *ToolChoice     `json:"tool_choice,omitempty"`
 }
 
 // ModelInfo represents a single model in the models list.

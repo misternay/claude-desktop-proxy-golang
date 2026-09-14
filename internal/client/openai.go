@@ -279,6 +279,26 @@ func (e *OpenAIError) Error() string {
 	return fmt.Sprintf("OpenAI API error [%d, %s]: %s", e.StatusCode, e.Type, e.Message)
 }
 
+// ClaudeError maps the upstream HTTP status to the (HTTP status, Claude error
+// type) pair the proxy should surface to the client. This is the authoritative
+// mapping — Claude clients act on these types, most importantly by backing off
+// on 429 rate_limit_error. Any status outside the mapped set (5xx, network
+// failures with StatusCode 0, ...) degrades to 502 api_error.
+func (e *OpenAIError) ClaudeError() (int, string) {
+	switch e.StatusCode {
+	case http.StatusBadRequest:
+		return http.StatusBadRequest, "invalid_request_error"
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return http.StatusUnauthorized, "authentication_error"
+	case http.StatusNotFound:
+		return http.StatusNotFound, "not_found_error"
+	case http.StatusTooManyRequests:
+		return http.StatusTooManyRequests, "rate_limit_error"
+	default:
+		return http.StatusBadGateway, "api_error"
+	}
+}
+
 // ClassifyOpenAIError classifies common OpenAI error messages into categories.
 func ClassifyOpenAIError(errorMsg string) string {
 	lower := strings.ToLower(errorMsg)
