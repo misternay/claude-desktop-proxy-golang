@@ -415,6 +415,124 @@ func TestConvertedRequestJSON(t *testing.T) {
 	}
 }
 
+// TestConvertToolUseRoundTrip verifies that a Claude tool-use turn (assistant
+// tool_use followed by a user message carrying tool_result blocks) converts to
+// exactly: user, assistant(tool_calls), tool — with no phantom empty user
+// message after the tool result. Strict upstreams (e.g. Huawei ModelArts)
+// reject messages whose content is missing/empty with
+// "message[N] missing 'content'".
+func TestConvertToolUseRoundTrip(t *testing.T) {
+	mm := newTestModelManager()
+
+	req := &model.MessagesRequest{
+		Model:     "claude-sonnet-4-5-20250929",
+		MaxTokens: 1024,
+		System:    "You are a helpful assistant.",
+		Messages: []model.Message{
+			{Role: "user", Content: "What's the weather in New York?"},
+			{Role: "assistant", Content: []any{
+				map[string]any{"type": "text", "text": "Let me check the weather."},
+				map[string]any{"type": "tool_use", "id": "toolu_01", "name": "get_weather", "input": map[string]any{"location": "New York"}},
+			}},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "tool_result", "tool_use_id": "toolu_01", "content": "72F, sunny"},
+			}},
+		},
+	}
+
+	result := ConvertClaudeToOpenAI(req, mm)
+	messages := result["messages"].([]map[string]any)
+
+	// Expect: system, user, assistant(tool_calls), tool
+	if len(messages) != 4 {
+		formatted, _ := json.MarshalIndent(messages, "", "  ")
+		t.Fatalf("expected 4 messages, got %d:\n%s", len(messages), formatted)
+	}
+
+	if messages[3]["role"] != "tool" {
+		t.Errorf("expected messages[3] role 'tool', got %v", messages[3]["role"])
+	}
+	if messages[3]["tool_call_id"] != "toolu_01" {
+		t.Errorf("expected tool_call_id 'toolu_01', got %v", messages[3]["tool_call_id"])
+	}
+	if messages[3]["content"] != "72F, sunny" {
+		t.Errorf("expected tool content '72F, sunny', got %v", messages[3]["content"])
+	}
+
+	// No message may carry empty or missing content — strict upstreams 400 on it.
+	for i, msg := range messages {
+		content, ok := msg["content"].(string)
+		if !ok || content == "" {
+			formatted, _ := json.Marshal(msg)
+			t.Errorf("messages[%d] has missing/empty content: %s", i, formatted)
+		}
+	}
+}
+
+// TestConvertToolResultWithText verifies that non-tool_result blocks sharing a
+// user message with tool_result blocks become a normal user message placed
+// after the tool messages.
+func TestConvertToolResultWithText(t *testing.T) {
+	mm := newTestModelManager()
+
+	req := &model.MessagesRequest{
+		Model:     "claude-sonnet-4-5-20250929",
+		MaxTokens: 1024,
+		Messages: []model.Message{
+			{Role: "user", Content: "check the weather"},
+			{Role: "assistant", Content: []any{
+				map[string]any{"type": "tool_use", "id": "toolu_02", "name": "get_weather", "input": map[string]any{"location": "Boston"}},
+			}},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "tool_result", "tool_use_id": "toolu_02", "content": "68F, cloudy"},
+				map[string]any{"type": "text", "text": "Also check Boston Harbor."},
+			}},
+		},
+	}
+
+	result := ConvertClaudeToOpenAI(req, mm)
+	messages := result["messages"].([]map[string]any)
+
+	if len(messages) != 4 {
+		formatted, _ := json.MarshalIndent(messages, "", "  ")
+		t.Fatalf("expected 4 messages (user, assistant, tool, user), got %d:\n%s", len(messages), formatted)
+	}
+	if messages[2]["role"] != "tool" {
+		t.Errorf("expected messages[2] role 'tool', got %v", messages[2]["role"])
+	}
+	if messages[3]["role"] != "user" || messages[3]["content"] != "Also check Boston Harbor." {
+		formatted, _ := json.Marshal(messages[3])
+		t.Errorf("expected trailing user message with remaining text, got %s", formatted)
+	}
+}
+
+// TestConvertEmptyUserMessageDropped verifies that user messages which would
+// convert to empty content are dropped instead of forwarded (strict upstreams
+// reject them).
+func TestConvertEmptyUserMessageDropped(t *testing.T) {
+	mm := newTestModelManager()
+
+	req := &model.MessagesRequest{
+		Model:     "claude-sonnet-4-5-20250929",
+		MaxTokens: 1024,
+		Messages: []model.Message{
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": ""},
+			}},
+		},
+	}
+
+	result := ConvertClaudeToOpenAI(req, mm)
+	messages, ok := result["messages"].([]map[string]any)
+	if !ok {
+		t.Fatal("expected messages to be []map[string]any")
+	}
+	if len(messages) != 0 {
+		formatted, _ := json.MarshalIndent(messages, "", "  ")
+		t.Fatalf("expected empty-conversion user message to be dropped, got:\n%s", formatted)
+	}
+}
+
 func floatPtr(f float64) *float64 {
 	return &f
 }

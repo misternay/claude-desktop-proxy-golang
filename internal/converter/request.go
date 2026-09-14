@@ -34,26 +34,34 @@ func ConvertClaudeToOpenAI(req *model.MessagesRequest, mm *modelmanager.ModelMan
 	}
 
 	// Process conversation messages
-	for i, msg := range req.Messages {
+	for _, msg := range req.Messages {
 		switch msg.Role {
 		case model.RoleUser:
-			userMsg := convertClaudeUserMessage(&msg)
-			messages = append(messages, userMsg)
+			// A user message may carry tool_result blocks (Claude's tool
+			// protocol). Emit those as tool-role messages here, then any
+			// remaining blocks as a normal user message. Converting such a
+			// message through convertClaudeUserMessage alone would emit a
+			// user message with empty content, which strict upstreams
+			// (e.g. Huawei ModelArts) reject with "missing 'content'".
+			if blocks, ok := msg.Content.([]any); ok && containsToolResultBlock(blocks) {
+				messages = append(messages, convertClaudeToolResults(&msg)...)
+				if rest := nonToolResultBlocks(blocks); len(rest) > 0 {
+					restMsg := model.Message{Role: msg.Role, Content: rest}
+					if userMsg := convertClaudeUserMessage(&restMsg); userMsg != nil {
+						messages = append(messages, userMsg)
+					}
+				}
+				continue
+			}
+			if userMsg := convertClaudeUserMessage(&msg); userMsg != nil {
+				messages = append(messages, userMsg)
+			}
 		case model.RoleSystem:
 			sysMsg := convertClaudeSystemMessage(&msg)
 			messages = append(messages, sysMsg)
 		case model.RoleAssistant:
 			assistantMsg := convertClaudeAssistantMessage(&msg)
 			messages = append(messages, assistantMsg)
-
-			// Check if next message has tool_result blocks
-			if i+1 < len(req.Messages) {
-				nextMsg := req.Messages[i+1]
-				toolResults := convertClaudeToolResults(&nextMsg)
-				if len(toolResults) > 0 {
-					messages = append(messages, toolResults...)
-				}
-			}
 		}
 	}
 
@@ -130,11 +138,17 @@ func extractSystemContent(system any) string {
 }
 
 // convertClaudeUserMessage converts a Claude user message to OpenAI format.
+// Returns nil when the message carries no usable content (empty text and no
+// image parts) so callers can drop it — strict upstreams reject messages
+// whose content is empty or missing.
 func convertClaudeUserMessage(msg *model.Message) map[string]any {
 	content := msg.Content
 
 	// Simple string content
 	if str, ok := content.(string); ok {
+		if str == "" {
+			return nil
+		}
 		return map[string]any{
 			"role":    "user",
 			"content": str,
@@ -165,9 +179,13 @@ func convertClaudeUserMessage(msg *model.Message) map[string]any {
 					}
 				}
 			}
+			joined := strings.Join(texts, "\n")
+			if joined == "" {
+				return nil
+			}
 			return map[string]any{
 				"role":    "user",
-				"content": strings.Join(texts, "\n"),
+				"content": joined,
 			}
 		}
 
@@ -203,6 +221,9 @@ func convertClaudeUserMessage(msg *model.Message) map[string]any {
 				}
 			}
 		}
+		if len(contentParts) == 0 {
+			return nil
+		}
 		return map[string]any{
 			"role":    "user",
 			"content": contentParts,
@@ -214,6 +235,32 @@ func convertClaudeUserMessage(msg *model.Message) map[string]any {
 		"role":    "user",
 		"content": fmt.Sprintf("%v", content),
 	}
+}
+
+// containsToolResultBlock reports whether any block is a tool_result block.
+func containsToolResultBlock(blocks []any) bool {
+	for _, block := range blocks {
+		if m, ok := block.(map[string]any); ok {
+			if m["type"] == model.ContentToolResult {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// nonToolResultBlocks returns the blocks with tool_result blocks removed.
+func nonToolResultBlocks(blocks []any) []any {
+	var rest []any
+	for _, block := range blocks {
+		if m, ok := block.(map[string]any); ok {
+			if m["type"] == model.ContentToolResult {
+				continue
+			}
+		}
+		rest = append(rest, block)
+	}
+	return rest
 }
 
 // convertClaudeSystemMessage converts a Claude system message to OpenAI format.
