@@ -1,10 +1,12 @@
 # Claude-to-OpenAI API Proxy configuration
 #
-# Copy this file to one of the discovery paths and edit:
-#   ./config.yaml
-#   ~/.claude-code-proxy/config.yaml
-#   /etc/claude-code-proxy/config.yaml   (Docker: mount here)
-# Or pass --config <path> to the binary.
+# Copy this file and edit:
+#   cp config.example.yaml config.yaml   # then edit config.yaml
+#
+# The proxy searches, in order:
+#   1. Path given to --config <path>     (e.g. ./claude-code-proxy --config /opt/prod/config.yaml)
+#   2. ./config.yaml in the current working directory
+# If no config file is found, the proxy exits with an error.
 #
 # Real keys live in this file — keep it out of git (config.yaml is gitignored).
 
@@ -23,12 +25,14 @@ openai_base_url: https://api.openai.com/v1
 azure_api_version: ""
 
 # ─── Server ─────────────────────────────────────────────────────────────────
+# host: 0.0.0.0 binds all interfaces — without anthropic_api_key anyone on
+# your network can spend your upstream key. Set 127.0.0.1 for local-only.
 host: 0.0.0.0
 port: 8082
 log_level: INFO
 
 # ─── Token limits ───────────────────────────────────────────────────────────
-# Upper clamp for requested max_tokens. Claude 4 models commonly request
+# Upper clamp for requested max_tokens. Claude 4/5 models commonly request
 # 16000–64000 output tokens; 4096 here would truncate those responses.
 max_tokens_limit: 64000
 min_tokens_limit: 100
@@ -38,25 +42,31 @@ min_tokens_limit: 100
 
 # ─── Connection ─────────────────────────────────────────────────────────────
 request_timeout: 90   # seconds
+# NOTE: max_retries is read and printed but not yet enforced (no retry logic).
 max_retries: 2
 
 # ─── Three-tier model routing ───────────────────────────────────────────────
+# Claude model names map to tiers: haiku -> small, sonnet -> middle, opus -> big.
 # Each tier may override name / api_key / base_url. Empty api_key and base_url
 # fall back to the top-level openai_api_key and openai_base_url.
 # Empty middle.name falls back to big.name.
 models:
   big:
-    name: deepseek-v4-pro
+    name: huawei/glm-5.2
     # api_key: ""
     # base_url: ""
   middle:
-    name: qwen3.7-max
+    name: dashscope/deepseek-v4-pro
     # api_key: ""
     # base_url: ""
   small:
-    name: glm5.1
+    name: dashscope/deepseek-v4-flash-0731
     # api_key: ""
     # base_url: ""
+
+# ─── Request body limit ─────────────────────────────────────────────────────
+# The proxy caps request bodies at 64 MiB (fixed, not configurable) and
+# responds 413 to oversized payloads.
 
 # ─── Custom upstream headers ────────────────────────────────────────────────
 # Sent on every request to the upstream API.

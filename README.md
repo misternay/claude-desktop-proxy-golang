@@ -17,6 +17,7 @@ A high-performance proxy server that accepts **Claude API** format requests and 
 - Converts Claude Messages API → OpenAI Chat Completions
 - Streaming (SSE) and non-streaming responses
 - Tool/function calling with streaming deltas
+- **Thinking blocks** — upstream `reasoning_content` (DeepSeek/GLM-style) surfaces as Claude `thinking` blocks in both streaming and non-streaming responses
 - Multimodal input (text + base64 images)
 - Model mapping: haiku → small, sonnet → middle, opus → big
 - Per-model API keys and base URLs
@@ -24,6 +25,10 @@ A high-performance proxy server that accepts **Claude API** format requests and 
 - Azure OpenAI support
 - Custom upstream headers via `config.yaml`
 - Auto-cancellation on client disconnect
+- **Proper error mapping** — upstream HTTP statuses map to Claude error types (400 `invalid_request_error`, 401 `authentication_error`, 403 `permission_error`, 404 `not_found_error`, 429 `rate_limit_error`, else 502 `api_error`); `Retry-After` is forwarded on 429
+- **Request body cap** — 64 MiB limit with a 413 response for oversized payloads
+- **Stream idle timeout** — stalls upstreams (no SSE line for 120s) are cancelled and surfaced as an error event
+- **Startup safety** — pre-binds the listener so port conflicts fail fast with a clear message; prints security warnings and the actual bound address
 
 ---
 
@@ -52,9 +57,9 @@ flowchart TD
 flowchart LR
     CC["Claude Code<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:8082"] -->|"POST /v1/messages<br/>(Claude format)"| P
     P["claude-code-proxy<br/>:8082"] -->|"translate<br/>Claude → OpenAI"| T{Model tier?}
-    T -- haiku --> SM["small model<br/>e.g. gpt-4o-mini"]
-    T -- sonnet --> MM["middle model<br/>e.g. gpt-4o"]
-    T -- opus --> BM["big model<br/>e.g. gpt-4o"]
+    T -- haiku --> SM["small model<br/>e.g. dashscope/deepseek-v4-flash"]
+    T -- sonnet --> MM["middle model<br/>e.g. dashscope/deepseek-v4-pro"]
+    T -- opus --> BM["big model<br/>e.g. huawei/glm-5.2"]
     SM --> U["OpenAI-compatible<br/>upstream API"]
     MM --> U
     BM --> U
@@ -189,6 +194,8 @@ openai_api_key: sk-your-key-here
 |----------|---------|-------------|
 | `anthropic_api_key` | _(empty)_ | If set, clients must send this key to access the proxy. If empty, the proxy is open access. |
 
+> ⚠️ **LAN warning:** with the default `host: 0.0.0.0` and an empty `anthropic_api_key`, anyone on your network can spend your upstream API key. The proxy prints a security warning at startup for this combination. Set `host: 127.0.0.1` for local-only use, or configure `anthropic_api_key`.
+
 ### Upstream
 
 | Key | Default | Description |
@@ -205,6 +212,8 @@ openai_api_key: sk-your-key-here
 | `log_level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `request_timeout` | `90` | Upstream timeout in seconds |
 | `max_retries` | `2` | Max retry attempts |
+
+> Note: `max_retries` is **not yet wired into the HTTP client** — it is read and printed but not enforced (no retry logic exists yet). Treat it as reserved for now.
 
 ### Token limits
 
@@ -264,10 +273,12 @@ These are forwarded to the upstream API on every request.
 | `POST` | `/v1/messages/count_tokens` | Yes | Estimate token count |
 | `GET` | `/v1/models` | Yes | List available Claude models |
 | `GET` | `/health` | No | Health check |
-| `GET` | `/test-connection` | No | Test upstream API connectivity |
+| `GET` | `/test-connection` | Yes | Test upstream API connectivity |
 | `GET` | `/` | No | Root info and config summary |
 
 Auth is required only when `anthropic_api_key` is set in `config.yaml`; otherwise the proxy is open access. Authenticated endpoints also pass through a per-IP rate limiter (100 requests/minute).
+
+Client errors are returned in the Claude error format and mapped from the upstream HTTP status: 400 → `invalid_request_error`, 401 → `authentication_error`, 403 → `permission_error`, 404 → `not_found_error`, 429 → `rate_limit_error` (with `Retry-After` forwarded), everything else → 502 `api_error`.
 
 ---
 
@@ -284,16 +295,19 @@ claude-code-proxy-go/
 │   ├── handler/
 │   │   ├── handler.go       # HTTP endpoint handlers
 │   │   ├── middleware.go     # API key validation
-│   │   └── ratelimit.go     # Per-IP rate limiter
+│   │   ├── ratelimit.go     # Per-IP rate limiter
+│   │   └── handler_test.go   # Body-limit / error-mapping tests
 │   ├── model/
 │   │   ├── claude.go        # Claude API type definitions
 │   │   └── constants.go     # Shared string constants
 │   ├── converter/
 │   │   ├── request.go       # Claude → OpenAI conversion
 │   │   ├── response.go      # OpenAI → Claude conversion + SSE
-│   │   └── converter_test.go
+│   │   ├── converter_test.go
+│   │   └── stream_idle_test.go  # Idle-timeout / read-error tests
 │   ├── client/
-│   │   └── openai.go        # OpenAI HTTP client + cancellation
+│   │   ├── openai.go        # OpenAI HTTP client + cancellation
+│   │   └── openai_test.go   # Error-mapping tests
 │   └── modelmanager/
 │       └── modelmanager.go  # Model name mapping
 ├── config.example.yaml      # Annotated config template
@@ -301,6 +315,22 @@ claude-code-proxy-go/
 ├── go.mod                   # stdlib + gopkg.in/yaml.v3
 └── README.md
 ```
+
+---
+
+## Thinking blocks
+
+GLM / DeepSeek-style upstreams return their chain of thought in `reasoning_content`
+(OpenRouter uses `reasoning`). The proxy surfaces it as a Claude `thinking`
+content block, so Claude clients show the model "thinking" live as it works:
+
+- **Streaming** — a `thinking` block (`thinking_delta` events) is emitted
+  before the text / `tool_use` blocks, matching Claude's block ordering.
+- **Non-streaming** — a `thinking` block is prepended ahead of text blocks.
+
+If the surrounding model sends `thinking` blocks back in assistant history
+(Claude Desktop echoes them), the proxy strips them on the request path so
+strict upstreams never see unknown fields.
 
 ---
 
