@@ -18,7 +18,7 @@ func TestOpenAIError_ClaudeError(t *testing.T) {
 	}{
 		{name: "400 maps to 400 invalid_request_error", statusCode: 400, wantStatus: 400, wantType: "invalid_request_error"},
 		{name: "401 maps to 401 authentication_error", statusCode: 401, wantStatus: 401, wantType: "authentication_error"},
-		{name: "403 maps to 401 authentication_error", statusCode: 403, wantStatus: 401, wantType: "authentication_error"},
+		{name: "403 maps to 403 permission_error", statusCode: 403, wantStatus: 403, wantType: "permission_error"},
 		{name: "404 maps to 404 not_found_error", statusCode: 404, wantStatus: 404, wantType: "not_found_error"},
 		{name: "405 maps to 502 api_error", statusCode: 405, wantStatus: 502, wantType: "api_error"},
 		{name: "409 maps to 502 api_error", statusCode: 409, wantStatus: 502, wantType: "api_error"},

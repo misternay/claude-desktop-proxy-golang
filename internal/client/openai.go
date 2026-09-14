@@ -116,6 +116,7 @@ func (c *OpenAIClient) CreateChatCompletion(
 			StatusCode: resp.StatusCode,
 			Message:    errorMsg,
 			Type:       errorType,
+			Headers:    resp.Header,
 		}
 	}
 
@@ -183,6 +184,7 @@ func (c *OpenAIClient) CreateChatCompletionStream(
 			StatusCode: resp.StatusCode,
 			Message:    errorMsg,
 			Type:       errorType,
+			Headers:    resp.Header,
 		}
 	}
 
@@ -273,6 +275,9 @@ type OpenAIError struct {
 	StatusCode int
 	Message    string
 	Type       string
+	// Headers carries the upstream response headers (e.g. Retry-After on
+	// 429) so the proxy can forward them to the client.
+	Headers http.Header
 }
 
 func (e *OpenAIError) Error() string {
@@ -288,8 +293,12 @@ func (e *OpenAIError) ClaudeError() (int, string) {
 	switch e.StatusCode {
 	case http.StatusBadRequest:
 		return http.StatusBadRequest, "invalid_request_error"
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusUnauthorized:
 		return http.StatusUnauthorized, "authentication_error"
+	case http.StatusForbidden:
+		// Authenticated key lacks permission for the resource — Anthropic's
+		// spec has a dedicated type for this; don't mislead as bad auth.
+		return http.StatusForbidden, "permission_error"
 	case http.StatusNotFound:
 		return http.StatusNotFound, "not_found_error"
 	case http.StatusTooManyRequests:

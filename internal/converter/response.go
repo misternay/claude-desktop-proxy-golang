@@ -223,20 +223,35 @@ func ConvertOpenAIStreamingToClaude(
 	// Set a large buffer for potentially long SSE lines
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
-	// Pump lines through a channel so the main loop can also select on the
-	// idle timer and the request context. readErr records a scanner failure
-	// (e.g. upstream closed the body abruptly); EOF is not an error.
-	lines := make(chan string, 64)
-	readErr := make(chan error, 1)
+	// Pump lines through a single channel so the main loop can also select on
+	// the idle timer and the request context. A scanner error (e.g. upstream
+	// closed the body abruptly) is delivered as an item too, so buffered lines
+	// are never silently dropped in favour of the error. stopCh unblocks the
+	// pump when the main loop exits early (timeout, cancel, abort), preventing
+	// a goroutine leak on a slow upstream.
+	type streamItem struct {
+		line string
+		err  error
+	}
+	items := make(chan streamItem, 64)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
 	go func() {
 		for scanner.Scan() {
-			lines <- scanner.Text()
+			select {
+			case items <- streamItem{line: scanner.Text()}:
+			case <-stopCh:
+				return
+			}
 		}
 		if err := scanner.Err(); err != nil {
-			readErr <- err
+			select {
+			case items <- streamItem{err: err}:
+			case <-stopCh:
+			}
 			return
 		}
-		close(lines)
+		close(items)
 	}()
 
 	idleTimer := time.NewTimer(StreamIdleTimeout)
@@ -276,7 +291,8 @@ func ConvertOpenAIStreamingToClaude(
 		// Surface in-stream error frames. Strict upstreams can return HTTP 200
 		// and then deliver the error as an SSE data frame (e.g. ModelArts
 		// validation errors); silently skipping them would give the client an
-		// empty response.
+		// empty response. The error payload is usually an object but some
+		// gateways send a plain string.
 		if errObj, ok := chunk["error"].(map[string]any); ok {
 			errMsg := fmt.Sprintf("%v", errObj["message"])
 			if errMsg == "" || errMsg == "<nil>" {
@@ -284,12 +300,30 @@ func ConvertOpenAIStreamingToClaude(
 					errMsg = string(b)
 				}
 			}
+			if cancelFn != nil {
+				cancelFn()
+			}
 			slog.Error("upstream reported in-stream error", "error", errMsg)
 			writeSSEEvent(w, "error", map[string]any{
 				"type": "error",
 				"error": map[string]any{
 					"type":    "api_error",
 					"message": errMsg,
+				},
+			})
+			abort = true
+			return false
+		}
+		if errStr, ok := chunk["error"].(string); ok && errStr != "" {
+			if cancelFn != nil {
+				cancelFn()
+			}
+			slog.Error("upstream reported in-stream error", "error", errStr)
+			writeSSEEvent(w, "error", map[string]any{
+				"type": "error",
+				"error": map[string]any{
+					"type":    "api_error",
+					"message": errStr,
 				},
 			})
 			abort = true
@@ -451,11 +485,14 @@ func ConvertOpenAIStreamingToClaude(
 				cancelFn()
 			}
 			return
-		case err := <-readErr:
-			slog.Error("scanner error while reading SSE stream", "error", err)
-			done = true
-		case line, ok := <-lines:
+		case item, ok := <-items:
 			if !ok {
+				done = true
+				break
+			}
+			if item.err != nil {
+				slog.Warn("scanner error while reading SSE stream; finishing with stop_reason error", "error", item.err)
+				stopReason = "error"
 				done = true
 				break
 			}
@@ -468,7 +505,7 @@ func ConvertOpenAIStreamingToClaude(
 				}
 			}
 			idleTimer.Reset(StreamIdleTimeout)
-			if !processLine(line) {
+			if !processLine(item.line) {
 				done = true
 			}
 		case <-idleTimer.C:

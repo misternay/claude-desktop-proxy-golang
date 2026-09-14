@@ -286,7 +286,8 @@ func convertClaudeAssistantMessage(msg *model.Message) map[string]any {
 	if text != "" {
 		result["content"] = text
 	} else {
-		result["content"] = ""
+		// Omit the content key entirely rather than sending "" — strict
+		// upstreams reject assistant messages with empty-string content.
 	}
 
 	// Extract tool calls from content blocks
@@ -320,10 +321,10 @@ func convertClaudeAssistantMessage(msg *model.Message) map[string]any {
 		}
 	}
 
-	if text == "" {
-		if _, hasToolCalls := result["tool_calls"]; !hasToolCalls {
-			return nil
-		}
+	if _, hasToolCalls := result["tool_calls"]; text == "" && !hasToolCalls {
+		// Neither text nor tool calls (e.g. a thinking-only turn) — nothing
+		// strict upstreams can consume, so drop the message entirely.
+		return nil
 	}
 
 	return result

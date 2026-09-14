@@ -19,6 +19,7 @@ func TestStreamingIdleTimeout(t *testing.T) {
 	// A pipe with no writer blocks the scanner forever — simulating an
 	// upstream that stalls mid-stream.
 	pr, _ := io.Pipe()
+	defer pr.Close()
 
 	recorder := httptest.NewRecorder()
 	cancelled := false
@@ -81,4 +82,42 @@ func TestStreamingIdleTimeoutHappyPath(t *testing.T) {
 	if cancelled {
 		t.Error("cancelFn should not be called on normal completion")
 	}
+}
+
+// TestStreamingReadErrorSurfaces verifies that a scanner error mid-stream
+// (e.g. upstream closes the body abruptly) finishes with stop_reason "error"
+// and without a bogus end_turn message_delta.
+func TestStreamingReadErrorSurfaces(t *testing.T) {
+	// Partial frame then a hard read error (not a clean EOF).
+	stream := &errReader{
+		data: []byte("data:{\"choices\":[]}\n\n"),
+		err:  io.ErrUnexpectedEOF,
+	}
+
+	recorder := httptest.NewRecorder()
+	ConvertOpenAIStreamingToClaude(recorder, stream, &model.MessagesRequest{Model: "test"}, context.Background(), nil, nil)
+	body := recorder.Body.String()
+
+	if !strings.Contains(body, `"stop_reason":"error"`) {
+		t.Errorf("expected stop_reason error on read failure, got:\n%s", body)
+	}
+	// The read error must not present itself as a clean end_turn.
+	if strings.Contains(body, `"stop_reason":"end_turn"`) {
+		t.Errorf("expected no end_turn after read error, got:\n%s", body)
+	}
+}
+
+// errReader returns err on Read after returning the given data once.
+type errReader struct {
+	data []byte
+	err  error
+	done bool
+}
+
+func (r *errReader) Read(p []byte) (int, error) {
+	if !r.done {
+		r.done = true
+		return copy(p, r.data), nil
+	}
+	return 0, r.err
 }

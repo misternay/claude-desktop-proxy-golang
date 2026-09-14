@@ -297,7 +297,8 @@ func (c *Config) SecurityWarnings() []string {
 	if c.AnthropicAPIKey != "" {
 		return nil
 	}
-	if c.Host == "0.0.0.0" || c.Host == "::" {
+	// An empty host also binds all interfaces ("0.0.0.0"), so cover it too.
+	if c.Host == "" || c.Host == "0.0.0.0" || c.Host == "::" {
 		return []string{
 			fmt.Sprintf(
 				"listening on all interfaces (host: %s) with no anthropic_api_key set — anyone on your network can use your upstream API key; set host: 127.0.0.1 or configure anthropic_api_key",

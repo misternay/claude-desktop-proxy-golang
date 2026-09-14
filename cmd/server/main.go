@@ -108,7 +108,9 @@ func main() {
 		log.Fatalf("❌ Cannot listen on %s: %v\n   Hint: the port may already be in use — is another claude-code-proxy instance still running?", addr, err)
 	}
 
-	fmt.Printf("   Server: %s\n", addr)
+	// Use the actual bound address so a dynamic port (port: 0) prints the
+	// OS-assigned port instead of 0.
+	fmt.Printf("   Server: %s\n", ln.Addr().String())
 	fmt.Println("🌐 Listening for requests...")
 
 	server := &http.Server{

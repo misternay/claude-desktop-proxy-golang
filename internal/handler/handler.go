@@ -78,12 +78,17 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 // upstream failure, preserving the upstream message text. *client.OpenAIError
 // carries the upstream HTTP status and is mapped via ClaudeError; any other
 // error (network failure, marshal failure) degrades to 502 api_error.
-func writeUpstreamError(w http.ResponseWriter, context string, err error) {
+func writeUpstreamError(w http.ResponseWriter, action string, err error) {
 	status := http.StatusBadGateway
 	errType := "api_error"
 	var openaiErr *client.OpenAIError
 	if errors.As(err, &openaiErr) {
 		status, errType = openaiErr.ClaudeError()
+		// Forward upstream Retry-After on rate limits so clients can back off
+		// for the exact duration requested.
+		if retryAfter := openaiErr.Headers.Get("Retry-After"); retryAfter != "" {
+			w.Header().Set("Retry-After", retryAfter)
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -91,7 +96,7 @@ func writeUpstreamError(w http.ResponseWriter, context string, err error) {
 		"type": "error",
 		"error": map[string]any{
 			"type":    errType,
-			"message": fmt.Sprintf("%s: %s", context, err.Error()),
+			"message": fmt.Sprintf("%s: %s", action, err.Error()),
 		},
 	})
 }

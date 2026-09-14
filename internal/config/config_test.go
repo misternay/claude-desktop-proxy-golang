@@ -563,7 +563,7 @@ func TestSecurityWarnings(t *testing.T) {
 		{name: "ipv6 loopback without client key is silent", host: "::1", apiKey: "", wantWarn: false},
 		{name: "localhost without client key is silent", host: "localhost", apiKey: "", wantWarn: false},
 		{name: "named host without client key is silent", host: "proxy.internal", apiKey: "", wantWarn: false},
-		{name: "empty host without client key is silent", host: "", apiKey: "", wantWarn: false},
+		{name: "empty host without client key warns (binds all interfaces)", host: "", apiKey: "", wantWarn: true},
 	}
 
 	for _, tc := range tests {
