@@ -202,12 +202,62 @@ func CountTokens(w http.ResponseWriter, r *http.Request) {
 
 // ListModels handles GET /v1/models - returns available Claude models.
 func ListModels(w http.ResponseWriter, r *http.Request) {
-	// Claude 4 family — current flagship lineup.
+	// Current lineup as of Sep 2026. From the 4.6 generation on, Anthropic
+	// uses dateless pinned-snapshot IDs; older generations keep dated IDs.
 	models := []map[string]any{
 		{
-			"id":           "claude-opus-4-1-20250805",
-			"display_name": "Claude Opus 4.1",
-			"created_at":   "2025-08-05T00:00:00Z",
+			"id":           "claude-fable-5-1",
+			"display_name": "Claude Fable 5.1",
+			"created_at":   "2026-09-01T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-opus-5",
+			"display_name": "Claude Opus 5",
+			"created_at":   "2026-07-24T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-5",
+			"display_name": "Claude Sonnet 5",
+			"created_at":   "2026-06-30T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-haiku-4-5-20251001",
+			"display_name": "Claude Haiku 4.5",
+			"created_at":   "2025-10-01T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		// Recent legacy generations — still available on the Anthropic API.
+		{
+			"id":           "claude-opus-4-8",
+			"display_name": "Claude Opus 4.8",
+			"created_at":   "2026-05-01T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-opus-4-7",
+			"display_name": "Claude Opus 4.7",
+			"created_at":   "2026-04-16T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-4-6",
+			"display_name": "Claude Sonnet 4.6",
+			"created_at":   "2026-02-17T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-opus-4-6",
+			"display_name": "Claude Opus 4.6",
+			"created_at":   "2026-02-05T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-opus-4-5-20251101",
+			"display_name": "Claude Opus 4.5",
+			"created_at":   "2025-11-01T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 		{
@@ -217,53 +267,9 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 			"created_by":   "anthropic",
 		},
 		{
-			"id":           "claude-haiku-4-5-20251001",
-			"display_name": "Claude Haiku 4.5",
-			"created_at":   "2025-10-01T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		{
-			"id":           "claude-opus-4-20250514",
-			"display_name": "Claude Opus 4",
-			"created_at":   "2025-05-14T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		{
-			"id":           "claude-sonnet-4-20250514",
-			"display_name": "Claude Sonnet 4",
-			"created_at":   "2025-05-14T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		// Claude 3.5 family — retained for backward compatibility.
-		{
-			"id":           "claude-3-5-sonnet-20241022",
-			"display_name": "Claude 3.5 Sonnet",
-			"created_at":   "2024-10-22T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		{
-			"id":           "claude-3-5-haiku-20241022",
-			"display_name": "Claude 3.5 Haiku",
-			"created_at":   "2024-10-22T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		// Claude 3 family — retained for backward compatibility.
-		{
-			"id":           "claude-3-opus-20240229",
-			"display_name": "Claude 3 Opus",
-			"created_at":   "2024-02-29T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		{
-			"id":           "claude-3-sonnet-20240229",
-			"display_name": "Claude 3 Sonnet",
-			"created_at":   "2024-02-29T00:00:00Z",
-			"created_by":   "anthropic",
-		},
-		{
-			"id":           "claude-3-haiku-20240307",
-			"display_name": "Claude 3 Haiku",
-			"created_at":   "2024-03-07T00:00:00Z",
+			"id":           "claude-opus-4-1-20250805",
+			"display_name": "Claude Opus 4.1",
+			"created_at":   "2025-08-05T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 	}
