@@ -60,8 +60,9 @@ func ConvertClaudeToOpenAI(req *model.MessagesRequest, mm *modelmanager.ModelMan
 			sysMsg := convertClaudeSystemMessage(&msg)
 			messages = append(messages, sysMsg)
 		case model.RoleAssistant:
-			assistantMsg := convertClaudeAssistantMessage(&msg)
-			messages = append(messages, assistantMsg)
+			if assistantMsg := convertClaudeAssistantMessage(&msg); assistantMsg != nil {
+				messages = append(messages, assistantMsg)
+			}
 		}
 	}
 
@@ -273,6 +274,9 @@ func convertClaudeSystemMessage(msg *model.Message) map[string]any {
 }
 
 // convertClaudeAssistantMessage converts a Claude assistant message to OpenAI format.
+// Returns nil when the message carries neither text nor tool calls (e.g. a
+// thinking-only turn) so callers can drop it — strict upstreams reject
+// assistant messages whose content is empty and that have no tool_calls.
 func convertClaudeAssistantMessage(msg *model.Message) map[string]any {
 	result := map[string]any{
 		"role": "assistant",
@@ -313,6 +317,12 @@ func convertClaudeAssistantMessage(msg *model.Message) map[string]any {
 		}
 		if len(toolCalls) > 0 {
 			result["tool_calls"] = toolCalls
+		}
+	}
+
+	if text == "" {
+		if _, hasToolCalls := result["tool_calls"]; !hasToolCalls {
+			return nil
 		}
 	}
 

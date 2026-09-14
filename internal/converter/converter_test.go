@@ -1,8 +1,11 @@
 package converter
 
 import (
+	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"claude-code-proxy-go/internal/config"
@@ -530,6 +533,78 @@ func TestConvertEmptyUserMessageDropped(t *testing.T) {
 	if len(messages) != 0 {
 		formatted, _ := json.MarshalIndent(messages, "", "  ")
 		t.Fatalf("expected empty-conversion user message to be dropped, got:\n%s", formatted)
+	}
+}
+
+// TestConvertEmptyAssistantMessageDropped verifies that assistant messages
+// with neither text nor tool calls (e.g. thinking-only turns) are dropped
+// instead of forwarded as empty-content messages that strict upstreams reject.
+func TestConvertEmptyAssistantMessageDropped(t *testing.T) {
+	mm := newTestModelManager()
+
+	req := &model.MessagesRequest{
+		Model:     "claude-sonnet-4-5-20250929",
+		MaxTokens: 1024,
+		Messages: []model.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: []any{
+				map[string]any{"type": "thinking", "thinking": "internal reasoning"},
+			}},
+			{Role: "user", Content: "hello?"},
+		},
+	}
+
+	result := ConvertClaudeToOpenAI(req, mm)
+	messages := result["messages"].([]map[string]any)
+
+	if len(messages) != 2 {
+		formatted, _ := json.MarshalIndent(messages, "", "  ")
+		t.Fatalf("expected thinking-only assistant message to be dropped (2 messages), got %d:\n%s", len(messages), formatted)
+	}
+	for i, msg := range messages {
+		if msg["role"] == "assistant" {
+			t.Errorf("unexpected assistant message at index %d", i)
+		}
+	}
+}
+
+// TestStreamingAcceptsDataWithoutSpace verifies that SSE frames prefixed with
+// "data:" (no space — as emitted by some upstreams like Huawei ModelArts via
+// bifrost) are parsed, not silently skipped.
+func TestStreamingAcceptsDataWithoutSpace(t *testing.T) {
+	stream := strings.NewReader("data:{\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n" +
+		"data: [DONE]\n\n")
+
+	recorder := httptest.NewRecorder()
+	ConvertOpenAIStreamingToClaude(recorder, stream, &model.MessagesRequest{Model: "test"}, context.Background(), nil, nil)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"text_delta"`) || !strings.Contains(body, "hello") {
+		t.Errorf("expected text_delta from no-space data frame, got:\n%s", body)
+	}
+	if !strings.Contains(body, "event: message_stop") {
+		t.Errorf("expected stream to complete normally, got:\n%s", body)
+	}
+}
+
+// TestStreamingSurfacesInStreamError verifies that an SSE error frame delivered
+// after HTTP 200 is surfaced to the client as a Claude error event instead of
+// being silently dropped (which would yield an empty response).
+func TestStreamingSurfacesInStreamError(t *testing.T) {
+	stream := strings.NewReader("data:{\"error\":{\"code\":\"ModelArts.81001\",\"message\":\"validation failed\"}}\n\n")
+
+	recorder := httptest.NewRecorder()
+	ConvertOpenAIStreamingToClaude(recorder, stream, &model.MessagesRequest{Model: "test"}, context.Background(), nil, nil)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: error") {
+		t.Errorf("expected error event in stream, got:\n%s", body)
+	}
+	if !strings.Contains(body, "validation failed") {
+		t.Errorf("expected upstream error message surfaced, got:\n%s", body)
+	}
+	if strings.Contains(body, "event: message_stop") {
+		t.Errorf("stream should terminate on error without message_stop, got:\n%s", body)
 	}
 }
 

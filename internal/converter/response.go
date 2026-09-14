@@ -195,12 +195,15 @@ func ConvertOpenAIStreamingToClaude(
 
 		line := scanner.Text()
 
-		// Skip non-data lines
-		if !strings.HasPrefix(line, "data: ") {
+		// Skip non-data lines. Some upstreams (e.g. Huawei ModelArts via
+		// bifrost) emit "data:" without the spec's optional trailing space;
+		// accept both forms.
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
 
-		data := strings.TrimPrefix(line, "data: ")
+		data := strings.TrimPrefix(line, "data:")
+		data = strings.TrimPrefix(data, " ")
 		if data == "[DONE]" {
 			break
 		}
@@ -210,6 +213,28 @@ func ConvertOpenAIStreamingToClaude(
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			slog.Debug("failed to parse SSE chunk", "error", err, "data", data)
 			continue
+		}
+
+		// Surface in-stream error frames. Strict upstreams can return HTTP 200
+		// and then deliver the error as an SSE data frame (e.g. ModelArts
+		// validation errors); silently skipping them would give the client an
+		// empty response.
+		if errObj, ok := chunk["error"].(map[string]any); ok {
+			errMsg := fmt.Sprintf("%v", errObj["message"])
+			if errMsg == "" || errMsg == "<nil>" {
+				if b, err := json.Marshal(errObj); err == nil {
+					errMsg = string(b)
+				}
+			}
+			slog.Error("upstream reported in-stream error", "error", errMsg)
+			writeSSEEvent(w, "error", map[string]any{
+				"type": "error",
+				"error": map[string]any{
+					"type":    "api_error",
+					"message": errMsg,
+				},
+			})
+			return
 		}
 
 		// Track usage from chunk
