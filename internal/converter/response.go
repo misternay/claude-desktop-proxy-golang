@@ -36,6 +36,15 @@ func ConvertOpenAIToClaudeResponse(openaiResponse map[string]any, originalReques
 	// Build content blocks
 	var contentBlocks []map[string]any
 
+	// Reasoning content (DeepSeek/GLM-style thinking) becomes a thinking
+	// block, placed first to match Claude's content block ordering.
+	if rc := reasoningText(message); rc != "" {
+		contentBlocks = append(contentBlocks, map[string]any{
+			"type":     "thinking",
+			"thinking": rc,
+		})
+	}
+
 	// Text content
 	if text, ok := message["content"].(string); ok && text != "" {
 		contentBlocks = append(contentBlocks, map[string]any{
@@ -110,6 +119,19 @@ func ConvertOpenAIToClaudeResponse(openaiResponse map[string]any, originalReques
 	}
 }
 
+// reasoningText extracts thinking text from an OpenAI-style message or delta.
+// DeepSeek/GLM-style upstreams expose it as reasoning_content; OpenRouter
+// uses reasoning.
+func reasoningText(m map[string]any) string {
+	if rc, ok := m["reasoning_content"].(string); ok && rc != "" {
+		return rc
+	}
+	if rc, ok := m["reasoning"].(string); ok && rc != "" {
+		return rc
+	}
+	return ""
+}
+
 // ConvertOpenAIStreamingToClaude reads an OpenAI SSE stream and writes Claude SSE events.
 func ConvertOpenAIStreamingToClaude(
 	w http.ResponseWriter,
@@ -146,16 +168,6 @@ func ConvertOpenAIStreamingToClaude(
 		},
 	})
 
-	// Write content_block_start for text (index 0)
-	writeSSEEvent(w, "content_block_start", map[string]any{
-		"type":  "content_block_start",
-		"index": 0,
-		"content_block": map[string]any{
-			"type": "text",
-			"text": "",
-		},
-	})
-
 	// Write ping event
 	writeSSEEvent(w, "ping", map[string]any{
 		"type": "ping",
@@ -170,15 +182,37 @@ func ConvertOpenAIStreamingToClaude(
 	}
 
 	var (
-		contentBlockIndex = 0
-		textBlockStarted  = true
+		contentBlockIndex = -1 // -1 = no content block emitted yet
+		thinkingOpen      = false
+		textOpen          = false
+		textIndex         = 0
 		toolCalls         = make(map[int]*toolCallState)
-		currentTextBlock  = 0
 		inputTokens       = 0
 		outputTokens      = 0
 		cachedTokens      = 0
 		stopReason        = "end_turn"
 	)
+
+	// Content blocks are emitted lazily so that thinking (reasoning_content)
+	// precedes text and tool_use blocks, matching Claude's block ordering.
+	closeOpenBlock := func() {
+		if contentBlockIndex >= 0 {
+			writeSSEEvent(w, "content_block_stop", map[string]any{
+				"type":  "content_block_stop",
+				"index": contentBlockIndex,
+			})
+		}
+	}
+	openBlock := func(block map[string]any) int {
+		closeOpenBlock()
+		contentBlockIndex++
+		writeSSEEvent(w, "content_block_start", map[string]any{
+			"type":          "content_block_start",
+			"index":         contentBlockIndex,
+			"content_block": block,
+		})
+		return contentBlockIndex
+	}
 
 	scanner := bufio.NewScanner(openaiStream)
 	// Set a large buffer for potentially long SSE lines
@@ -269,11 +303,34 @@ func ConvertOpenAIStreamingToClaude(
 			continue
 		}
 
-		// Handle text content
-		if content, ok := delta["content"].(string); ok && content != "" {
+		// Handle reasoning content (thinking) — emitted as a thinking block
+		// ahead of any text or tool_use blocks.
+		if rc := reasoningText(delta); rc != "" {
+			if !thinkingOpen {
+				thinkingOpen = true
+				textOpen = false
+				openBlock(map[string]any{"type": "thinking", "thinking": ""})
+			}
 			writeSSEEvent(w, "content_block_delta", map[string]any{
 				"type":  "content_block_delta",
-				"index": currentTextBlock,
+				"index": contentBlockIndex,
+				"delta": map[string]any{
+					"type":     "thinking_delta",
+					"thinking": rc,
+				},
+			})
+		}
+
+		// Handle text content
+		if content, ok := delta["content"].(string); ok && content != "" {
+			if !textOpen {
+				thinkingOpen = false
+				textOpen = true
+				textIndex = openBlock(map[string]any{"type": "text", "text": ""})
+			}
+			writeSSEEvent(w, "content_block_delta", map[string]any{
+				"type":  "content_block_delta",
+				"index": textIndex,
 				"delta": map[string]any{
 					"type": "text_delta",
 					"text": content,
@@ -316,31 +373,15 @@ func ConvertOpenAIStreamingToClaude(
 
 				// Start tool call content block when we have id and name
 				if !state.started && state.id != "" && state.name != "" {
-					// Close whatever content block is currently open (text or previous tool_use)
-					if textBlockStarted {
-						writeSSEEvent(w, "content_block_stop", map[string]any{
-							"type":  "content_block_stop",
-							"index": contentBlockIndex,
-						})
-						textBlockStarted = false
-					} else if contentBlockIndex > 0 {
-						// A previous tool_use block is open — close it before starting the next
-						writeSSEEvent(w, "content_block_stop", map[string]any{
-							"type":  "content_block_stop",
-							"index": contentBlockIndex,
-						})
-					}
-
-					contentBlockIndex++
-					writeSSEEvent(w, "content_block_start", map[string]any{
-						"type":  "content_block_start",
-						"index": contentBlockIndex,
-						"content_block": map[string]any{
-							"type":  "tool_use",
-							"id":    state.id,
-							"name":  state.name,
-							"input": map[string]any{},
-						},
+					// openBlock closes whatever is currently open (thinking,
+					// text, or the previous tool_use) before starting this one.
+					thinkingOpen = false
+					textOpen = false
+					openBlock(map[string]any{
+						"type":  "tool_use",
+						"id":    state.id,
+						"name":  state.name,
+						"input": map[string]any{},
 					})
 					state.started = true
 				}
@@ -371,11 +412,12 @@ func ConvertOpenAIStreamingToClaude(
 		slog.Error("scanner error while reading SSE stream", "error", err)
 	}
 
-	// Close the last open content block
-	writeSSEEvent(w, "content_block_stop", map[string]any{
-		"type":  "content_block_stop",
-		"index": contentBlockIndex,
-	})
+	// Guarantee at least one content block (empty text) so clients always
+	// see a matched start/stop pair, then close the last open block.
+	if contentBlockIndex == -1 {
+		openBlock(map[string]any{"type": "text", "text": ""})
+	}
+	closeOpenBlock()
 
 	// Write message_delta with stop_reason and usage
 	usageMap := map[string]any{

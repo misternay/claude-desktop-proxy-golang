@@ -608,6 +608,70 @@ func TestStreamingSurfacesInStreamError(t *testing.T) {
 	}
 }
 
+// TestNonStreamingThinkingBlock verifies reasoning_content maps to a thinking
+// block placed before the text block.
+func TestNonStreamingThinkingBlock(t *testing.T) {
+	openaiResp := map[string]any{
+		"id": "chatcmpl-1",
+		"choices": []any{
+			map[string]any{
+				"message": map[string]any{
+					"role":              "assistant",
+					"content":           "OK",
+					"reasoning_content": "the user wants exactly OK",
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 9},
+	}
+
+	result := ConvertOpenAIToClaudeResponse(openaiResp, &model.MessagesRequest{Model: "test"})
+	content := result["content"].([]map[string]any)
+	if len(content) != 2 {
+		formatted, _ := json.Marshal(content)
+		t.Fatalf("expected [thinking, text] blocks, got %s", formatted)
+	}
+	if content[0]["type"] != "thinking" || content[0]["thinking"] != "the user wants exactly OK" {
+		t.Errorf("unexpected thinking block: %v", content[0])
+	}
+	if content[1]["type"] != "text" || content[1]["text"] != "OK" {
+		t.Errorf("unexpected text block: %v", content[1])
+	}
+}
+
+// TestStreamingThinkingBlocks verifies the streaming converter emits a
+// thinking block (index 0) with thinking_delta events before the text block
+// (index 1), and that the thinking block is closed before text starts.
+func TestStreamingThinkingBlocks(t *testing.T) {
+	stream := strings.NewReader(
+		"data:{\"choices\":[{\"delta\":{\"reasoning_content\":\"pondering \"}}]}\n\n" +
+			"data:{\"choices\":[{\"delta\":{\"reasoning_content\":\"hard\"}}]}\n\n" +
+			"data:{\"choices\":[{\"delta\":{\"content\":\"Answer!\"}}]}\n\n" +
+			"data: [DONE]\n\n")
+
+	recorder := httptest.NewRecorder()
+	ConvertOpenAIStreamingToClaude(recorder, stream, &model.MessagesRequest{Model: "test"}, context.Background(), nil, nil)
+	body := recorder.Body.String()
+
+	thinkingStart := strings.Index(body, `"content_block":{"thinking":"","type":"thinking"}`)
+	thinkingDelta := strings.Index(body, `"thinking_delta"`)
+	textStart := strings.Index(body, `"content_block":{"text":"","type":"text"}`)
+	textDelta := strings.Index(body, `"text_delta"`)
+	if thinkingStart == -1 || thinkingDelta == -1 || textStart == -1 || textDelta == -1 {
+		t.Fatalf("expected thinking and text blocks in stream, got:\n%s", body)
+	}
+	if !(thinkingStart < thinkingDelta && thinkingDelta < textStart && textStart < textDelta) {
+		t.Errorf("expected thinking events before text events, got:\n%s", body)
+	}
+	if !strings.Contains(body, `"index":0,"type":"content_block_stop"`) {
+		t.Errorf("expected thinking block (index 0) closed before text block starts, got:\n%s", body)
+	}
+	if !strings.Contains(body, `"thinking":"pondering "`) || !strings.Contains(body, `"thinking":"hard"`) || !strings.Contains(body, "Answer!") {
+		t.Errorf("expected thinking and text payloads delivered, got:\n%s", body)
+	}
+}
+
 func floatPtr(f float64) *float64 {
 	return &f
 }
