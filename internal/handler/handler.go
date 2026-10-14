@@ -300,6 +300,19 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 			"created_at":   "2025-10-01T00:00:00Z",
 			"created_by":   "anthropic",
 		},
+		// Pre-5.5 generation aliases — still live on the Anthropic API.
+		{
+			"id":           "claude-opus-5",
+			"display_name": "Claude Opus 5",
+			"created_at":   "2026-07-24T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-5",
+			"display_name": "Claude Sonnet 5",
+			"created_at":   "2026-06-30T00:00:00Z",
+			"created_by":   "anthropic",
+		},
 		{
 			"id":           "claude-opus-4-1-20250805",
 			"display_name": "Claude Opus 4.1",
