@@ -145,7 +145,7 @@ curl http://localhost:8082/test-connection
 curl -X POST http://localhost:8082/v1/messages \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-sonnet-5-5",
     "max_tokens": 100,
     "messages": [
       {"role": "user", "content": "Hello!"}
