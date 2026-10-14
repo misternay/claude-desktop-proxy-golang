@@ -39,7 +39,8 @@ func (m *ModelManager) GetModelConfig(claudeModel string) (string, string, strin
 		return m.cfg.MiddleModel, m.cfg.MiddleModelAPIKey, m.cfg.MiddleModelBaseURL
 	}
 
-	if strings.Contains(modelLower, "opus") {
+	// opus and fable are both routed to the big (most capable) model tier
+	if strings.Contains(modelLower, "opus") || strings.Contains(modelLower, "fable") {
 		return m.cfg.BigModel, m.cfg.BigModelAPIKey, m.cfg.BigModelBaseURL
 	}
 

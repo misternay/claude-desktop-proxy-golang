@@ -229,8 +229,9 @@ func CountTokens(w http.ResponseWriter, r *http.Request) {
 
 // ListModels handles GET /v1/models - returns available Claude models.
 func ListModels(w http.ResponseWriter, r *http.Request) {
-	// Current lineup as of Sep 2026. From the 4.6 generation on, Anthropic
+	// Current lineup as of Oct 2026. From the 4.6 generation on, Anthropic
 	// uses dateless pinned-snapshot IDs; older generations keep dated IDs.
+	// Source: https://platform.claude.com/docs/en/models/overview
 	models := []map[string]any{
 		{
 			"id":           "claude-fable-5-1",
@@ -239,21 +240,21 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 			"created_by":   "anthropic",
 		},
 		{
-			"id":           "claude-opus-5",
-			"display_name": "Claude Opus 5",
-			"created_at":   "2026-07-24T00:00:00Z",
+			"id":           "claude-opus-5-5",
+			"display_name": "Claude Opus 5.5",
+			"created_at":   "2026-09-22T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 		{
-			"id":           "claude-sonnet-5",
-			"display_name": "Claude Sonnet 5",
-			"created_at":   "2026-06-30T00:00:00Z",
+			"id":           "claude-sonnet-5-5",
+			"display_name": "Claude Sonnet 5.5",
+			"created_at":   "2026-09-28T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 		{
-			"id":           "claude-haiku-4-5-20251001",
-			"display_name": "Claude Haiku 4.5",
-			"created_at":   "2025-10-01T00:00:00Z",
+			"id":           "claude-haiku-5-5",
+			"display_name": "Claude Haiku 5.5",
+			"created_at":   "2026-10-07T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 		// Recent legacy generations — still available on the Anthropic API.
@@ -291,6 +292,25 @@ func ListModels(w http.ResponseWriter, r *http.Request) {
 			"id":           "claude-sonnet-4-5-20250929",
 			"display_name": "Claude Sonnet 4.5",
 			"created_at":   "2025-09-29T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-haiku-4-5-20251001",
+			"display_name": "Claude Haiku 4.5",
+			"created_at":   "2025-10-01T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		// Pre-5.5 generation aliases — still live on the Anthropic API.
+		{
+			"id":           "claude-opus-5",
+			"display_name": "Claude Opus 5",
+			"created_at":   "2026-07-24T00:00:00Z",
+			"created_by":   "anthropic",
+		},
+		{
+			"id":           "claude-sonnet-5",
+			"display_name": "Claude Sonnet 5",
+			"created_at":   "2026-06-30T00:00:00Z",
 			"created_by":   "anthropic",
 		},
 		{
